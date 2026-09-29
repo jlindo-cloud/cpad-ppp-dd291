@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+.dev-db/
+datos/
+# Datos personales de la obra: no se publican
+cpad-api/db/datos_iniciales.sql

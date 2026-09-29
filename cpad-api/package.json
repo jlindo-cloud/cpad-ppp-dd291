@@ -1,0 +1,21 @@
+{
+  "name": "cpad-api",
+  "version": "0.1.0",
+  "description": "CPAD - API REST del módulo de asistencia y planilla (Sprint 1: maestros)",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test --test-reporter=spec",
+    "start": "node src/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "embedded-postgres": "^18.4.0-beta.17",
+    "supertest": "^7.3.0"
+  }
+}
