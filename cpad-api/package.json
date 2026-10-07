@@ -1,11 +1,12 @@
 {
   "name": "cpad-api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CPAD - API REST del módulo de asistencia y planilla (Sprint 1: maestros)",
   "main": "index.js",
   "scripts": {
     "test": "node --test --test-reporter=spec",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "db:setup": "node scripts/setup-db.js"
   },
   "keywords": [],
   "author": "",

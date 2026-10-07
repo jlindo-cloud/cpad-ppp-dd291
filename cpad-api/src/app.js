@@ -138,7 +138,7 @@ function createApp(pool) {
 
   app.get('/api/salud', ah(async (_req, res) => {
     await pool.query('SELECT 1');
-    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.1.0' });
+    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.2.0' });
   }));
 
   app.use('/api/categorias', crud(pool, 'categoria', validarCatalogo, { order: 'nombre' }));
@@ -151,6 +151,41 @@ function createApp(pool) {
     const { rows } = await pool.query(`${SEL_TRAB} WHERE trabajador.dni = $1`, [req.params.dni]);
     if (!rows.length) throw new HttpError(404, 'No existe un trabajador con ese DNI');
     res.json(rows[0]);
+  }));
+  // Carga masiva del padrón: todo o nada, con reporte de errores por fila
+  trabajadores.post('/lote', ah(async (req, res) => {
+    const filas = req.body && req.body.trabajadores;
+    if (!Array.isArray(filas) || filas.length === 0) throw new HttpError(400, 'Se requiere la lista "trabajadores" con al menos una fila');
+    if (filas.length > 500) throw new HttpError(400, 'El lote admite como máximo 500 filas');
+    const mapa = async (tabla, col) => new Map((await pool.query(`SELECT id, ${col} AS k FROM ${tabla} WHERE activo`)).rows.map((r) => [r.k, r.id]));
+    const [cats, esps, obras] = await Promise.all([mapa('categoria', 'nombre'), mapa('especialidad', 'nombre'), mapa('obra', 'codigo')]);
+    const existentes = new Set((await pool.query('SELECT dni FROM trabajador')).rows.map((r) => r.dni));
+    const vistos = new Set(); const errores = []; const validos = [];
+    filas.forEach((f, i) => {
+      const errs = []; const fila = i + 1; const b = { ...(f || {}) };
+      const up = (v) => String(v ?? '').trim().toUpperCase();
+      if (b.categoria !== undefined) { b.categoria_id = cats.get(up(b.categoria)); if (!b.categoria_id) errs.push(`categoria "${b.categoria}" no existe`); }
+      if (b.especialidad !== undefined) { b.especialidad_id = esps.get(up(b.especialidad)); if (!b.especialidad_id) errs.push(`especialidad "${b.especialidad}" no existe`); }
+      if (b.obra !== undefined && b.obra !== null && b.obra !== '') { b.obra_id = obras.get(String(b.obra).trim()); if (!b.obra_id) errs.push(`obra "${b.obra}" no existe`); }
+      let t = null;
+      if (!errs.length) { try { t = validarTrabajador(b); } catch (e) { errs.push(...(e.details || [e.message])); } }
+      const dni = String(b.dni ?? '').trim();
+      if (vistos.has(dni)) errs.push('dni repetido dentro del lote');
+      if (existentes.has(dni)) errs.push('dni ya registrado');
+      vistos.add(dni);
+      if (errs.length) errores.push({ fila, dni, errores: errs }); else validos.push(t);
+    });
+    if (errores.length) return res.status(400).json({ error: 'El lote contiene errores; no se registró ninguna fila', insertados: 0, errores });
+    const cx = await pool.connect();
+    try {
+      await cx.query('BEGIN');
+      for (const t of validos) {
+        await cx.query('INSERT INTO trabajador (dni, apellidos, nombres, categoria_id, especialidad_id, obra_id, fecha_ingreso) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+          [t.dni, t.apellidos, t.nombres, t.categoria_id, t.especialidad_id, t.obra_id, t.fecha_ingreso]);
+      }
+      await cx.query('COMMIT');
+    } catch (e) { await cx.query('ROLLBACK'); throw e; } finally { cx.release(); }
+    res.status(201).json({ insertados: validos.length });
   }));
   trabajadores.use(crud(pool, 'trabajador', validarTrabajador, {
     order: 'trabajador.apellidos, trabajador.nombres',

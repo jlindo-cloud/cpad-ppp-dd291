@@ -1,7 +1,7 @@
 # cpad-api
 
 API REST del módulo de asistencia y planilla del ERP CPAD (COEZ PERÚ E.I.R.L.).
-**Incremento del Sprint 1:** núcleo y maestros (obras, categorías, especialidades y trabajadores).
+**Incremento del Sprint 1:** núcleo y maestros (obras, categorías, especialidades y trabajadores), con carga masiva del padrón.
 
 ## Requisitos
 - Node.js 20 o superior
@@ -10,8 +10,7 @@ API REST del módulo de asistencia y planilla del ERP CPAD (COEZ PERÚ E.I.R.L.)
 ## Puesta en marcha
 ```bash
 npm install
-psql "$DATABASE_URL" -f db/schema.sql
-psql "$DATABASE_URL" -f db/seed.sql
+DATABASE_URL=postgres://usuario:clave@host:5432/cpad npm run db:setup
 DATABASE_URL=postgres://usuario:clave@host:5432/cpad npm start
 ```
 Para Supabase, añadir `DATABASE_SSL=true`.
@@ -20,7 +19,7 @@ Para Supabase, añadir `DATABASE_SSL=true`.
 ```bash
 npm test
 ```
-Las pruebas levantan un PostgreSQL embebido temporal, aplican el esquema y los datos iniciales, y ejecutan 12 casos de prueba contra la API.
+Las pruebas levantan un PostgreSQL embebido temporal, aplican el esquema y los datos iniciales, y ejecutan 16 casos de prueba contra la API.
 
 ## Endpoints
 | Método | Ruta | Descripción |
@@ -34,6 +33,7 @@ Las pruebas levantan un PostgreSQL embebido temporal, aplican el esquema y los d
 | GET, PUT, DELETE | /api/obras/:id | Consultar / editar / dar de baja |
 | GET, POST | /api/trabajadores | Listar (filtros `obra_id`, `categoria_id`, `especialidad_id`, `activo`, `q`) / crear |
 | GET | /api/trabajadores/dni/:dni | Buscar por DNI |
+| POST | /api/trabajadores/lote | Carga masiva del padrón (hasta 500 filas, todo o nada; acepta `categoria`, `especialidad` y `obra` por nombre) |
 | GET, PUT, DELETE | /api/trabajadores/:id | Consultar / editar / dar de baja |
 
 Las bajas son lógicas (`activo = false`) para conservar el histórico de planillas.

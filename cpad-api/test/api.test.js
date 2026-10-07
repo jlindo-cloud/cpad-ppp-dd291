@@ -132,3 +132,46 @@ test('CP12 errores: id inválido, recurso inexistente y JSON mal formado', async
   const r = await request(app).post('/api/obras').set('Content-Type', 'application/json').send('{mal');
   assert.equal(r.status, 400);
 });
+
+test('CP13 lote: carga varios trabajadores usando nombres de categoría, especialidad y obra', async () => {
+  const r = await request(app).post('/api/trabajadores/lote').send({ trabajadores: [
+    { dni: '20000001', apellidos: 'Uno Prueba', nombres: 'Ana', categoria: 'Operario', especialidad: 'Electricidad', obra: 'IE0159' },
+    { dni: '20000002', apellidos: 'Dos Prueba', nombres: 'Luis', categoria: 'CAPATAZ', especialidad: 'ELECTRICIDAD', obra: 'IE0159' },
+    { dni: '20000003', apellidos: 'Tres Prueba', nombres: 'Rosa', categoria: 'ayudante', especialidad: 'concreto' },
+  ] });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.insertados, 3);
+  const g = await request(app).get('/api/trabajadores/dni/20000002');
+  assert.equal(g.body.categoria, 'CAPATAZ');
+});
+
+test('CP14 lote: si una fila falla no se registra ninguna y se informa la fila', async () => {
+  const antes = (await request(app).get('/api/trabajadores')).body.length;
+  const r = await request(app).post('/api/trabajadores/lote').send({ trabajadores: [
+    { dni: '30000001', apellidos: 'Valido', nombres: 'Uno', categoria: 'OFICIAL', especialidad: 'ACERO' },
+    { dni: '3000000', apellidos: 'Dni Corto', nombres: 'Dos', categoria: 'OFICIAL', especialidad: 'ACERO' },
+    { dni: '30000003', apellidos: 'Sin Categoria', nombres: 'Tres', categoria: 'MAESTRO', especialidad: 'ACERO' },
+  ] });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.insertados, 0);
+  assert.deepEqual(r.body.errores.map((e) => e.fila), [2, 3]);
+  const despues = (await request(app).get('/api/trabajadores')).body.length;
+  assert.equal(despues, antes);
+});
+
+test('CP15 lote: detecta DNI repetido en el lote y DNI ya registrado', async () => {
+  const r = await request(app).post('/api/trabajadores/lote').send({ trabajadores: [
+    { dni: '40000001', apellidos: 'A', nombres: 'B', categoria: 'OFICIAL', especialidad: 'ACERO' },
+    { dni: '40000001', apellidos: 'C', nombres: 'D', categoria: 'OFICIAL', especialidad: 'ACERO' },
+    { dni: '12345678', apellidos: 'E', nombres: 'F', categoria: 'OFICIAL', especialidad: 'ACERO' },
+  ] });
+  assert.equal(r.status, 400);
+  assert.match(r.body.errores[0].errores.join(), /repetido/);
+  assert.match(r.body.errores[1].errores.join(), /ya registrado/);
+});
+
+test('CP16 lote: rechaza lote vacío o con más de 500 filas', async () => {
+  assert.equal((await request(app).post('/api/trabajadores/lote').send({ trabajadores: [] })).status, 400);
+  const muchas = Array.from({ length: 501 }, (_, i) => ({ dni: String(50000000 + i), apellidos: 'X', nombres: 'Y', categoria: 'OFICIAL', especialidad: 'ACERO' }));
+  assert.equal((await request(app).post('/api/trabajadores/lote').send({ trabajadores: muchas })).status, 400);
+});
