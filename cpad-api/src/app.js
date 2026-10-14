@@ -132,13 +132,13 @@ function crud(pool, table, validar, { order = 'id', filters = () => ({ where: []
   return r;
 }
 
-function createApp(pool) {
+function createApp(pool, { staticDir } = {}) {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
 
   app.get('/api/salud', ah(async (_req, res) => {
     await pool.query('SELECT 1');
-    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.2.0' });
+    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.3.0-beta' });
   }));
 
   app.use('/api/categorias', crud(pool, 'categoria', validarCatalogo, { order: 'nombre' }));
@@ -203,7 +203,14 @@ function createApp(pool) {
     },
   }));
   app.use('/api/trabajadores', trabajadores);
+  app.use('/api/asistencias', require('./asistencia')(pool, { HttpError, ah }));
 
+  // En la beta, la misma aplicación sirve la interfaz web ya compilada
+  if (staticDir) {
+    const path = require('node:path');
+    app.use(express.static(staticDir));
+    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(staticDir, 'index.html')));
+  }
   app.use((_req, _res, next) => next(new HttpError(404, 'Ruta no encontrada')));
 
   // eslint-disable-next-line no-unused-vars

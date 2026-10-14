@@ -70,3 +70,24 @@ BEGIN
     EXECUTE format('CREATE TRIGGER tg_%1$s_touch BEFORE UPDATE ON %1$s FOR EACH ROW EXECUTE FUNCTION fn_touch()', t);
   END LOOP;
 END $$;
+
+-- Sprint 2: registro diario de asistencia (tareo)
+CREATE TABLE IF NOT EXISTS asistencia (
+  id              SERIAL PRIMARY KEY,
+  trabajador_id   INTEGER NOT NULL REFERENCES trabajador(id),
+  obra_id         INTEGER NOT NULL REFERENCES obra(id),
+  fecha           DATE NOT NULL,
+  asistio         BOOLEAN NOT NULL DEFAULT TRUE,
+  hora_ingreso    TIME,
+  hora_salida     TIME,
+  observacion     VARCHAR(200),
+  creado_en       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actualizado_en  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_asistencia_dia UNIQUE (trabajador_id, fecha),
+  CONSTRAINT ck_asistencia_horas CHECK (
+    (asistio AND hora_ingreso IS NOT NULL AND (hora_salida IS NULL OR hora_salida > hora_ingreso))
+    OR (NOT asistio AND hora_ingreso IS NULL AND hora_salida IS NULL))
+);
+CREATE INDEX IF NOT EXISTS ix_asistencia_obra_fecha ON asistencia(obra_id, fecha);
+DROP TRIGGER IF EXISTS tg_asistencia_touch ON asistencia;
+CREATE TRIGGER tg_asistencia_touch BEFORE UPDATE ON asistencia FOR EACH ROW EXECUTE FUNCTION fn_touch();

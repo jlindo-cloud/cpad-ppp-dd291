@@ -175,3 +175,91 @@ test('CP16 lote: rechaza lote vacío o con más de 500 filas', async () => {
   const muchas = Array.from({ length: 501 }, (_, i) => ({ dni: String(50000000 + i), apellidos: 'X', nombres: 'Y', categoria: 'OFICIAL', especialidad: 'ACERO' }));
   assert.equal((await request(app).post('/api/trabajadores/lote').send({ trabajadores: muchas })).status, 400);
 });
+
+// ---------------- Sprint 2: asistencia (tareo) ----------------
+async function hoja(fecha) {
+  const obra = (await request(app).get('/api/obras')).body.find((x) => x.codigo === 'IE0159').id;
+  const r = await request(app).get(`/api/asistencias?obra_id=${obra}&fecha=${fecha}`);
+  return { obra, r };
+}
+
+test('CP17 tareo: la hoja del día lista a los trabajadores de la obra, sin registros todavía', async () => {
+  const { r } = await hoja('2026-09-21');
+  assert.equal(r.status, 200);
+  assert.ok(r.body.filas.length >= 3);
+  assert.equal(r.body.resumen.registrados, 0);
+  assert.equal(r.body.filas[0].categoria, 'CAPATAZ'); // el capataz encabeza la hoja, como en el formato impreso
+});
+
+test('CP18 tareo: registra la hoja de un lunes y calcula horas y sobretiempo', async () => {
+  const { obra, r } = await hoja('2026-09-21');
+  const [a, b, c] = r.body.filas;
+  const p = await request(app).put('/api/asistencias').send({ obra_id: obra, fecha: '2026-09-21', registros: [
+    { trabajador_id: a.trabajador_id, hora_ingreso: '07:30', hora_salida: '19:00' },
+    { trabajador_id: b.trabajador_id, hora_ingreso: '07:30', hora_salida: '17:00' },
+    { trabajador_id: c.trabajador_id, asistio: false, observacion: 'Falta' },
+  ] });
+  assert.equal(p.status, 200);
+  assert.equal(p.body.guardados, 3);
+  const h = (await hoja('2026-09-21')).r.body;
+  const f = Object.fromEntries(h.filas.map((x) => [x.trabajador_id, x]));
+  assert.equal(f[a.trabajador_id].sobretiempo_h, 2);
+  assert.equal(f[a.trabajador_id].horas_trabajadas, 10.5);
+  assert.equal(f[b.trabajador_id].horas_trabajadas, 8.5);
+  assert.equal(f[b.trabajador_id].sobretiempo_h, 0);
+  assert.deepEqual([h.resumen.asistieron, h.resumen.faltaron, h.resumen.sobretiempo_h], [2, 1, 2]);
+});
+
+test('CP19 tareo: corregir la hoja actualiza el registro sin duplicarlo', async () => {
+  const { obra, r } = await hoja('2026-09-21');
+  const a = r.body.filas[0];
+  await request(app).put('/api/asistencias').send({ obra_id: obra, fecha: '2026-09-21', registros: [
+    { trabajador_id: a.trabajador_id, hora_ingreso: '07:30', hora_salida: '20:00' }] });
+  const h = (await hoja('2026-09-21')).r.body;
+  assert.equal(h.resumen.registrados, 3);
+  assert.equal(h.filas.find((x) => x.trabajador_id === a.trabajador_id).sobretiempo_h, 3);
+});
+
+test('CP20 tareo: el sábado usa la salida de las 13:00 y no descuenta almuerzo', async () => {
+  const { obra, r } = await hoja('2026-09-26');
+  const [a, b] = r.body.filas;
+  await request(app).put('/api/asistencias').send({ obra_id: obra, fecha: '2026-09-26', registros: [
+    { trabajador_id: a.trabajador_id, hora_ingreso: '07:30', hora_salida: '13:00' },
+    { trabajador_id: b.trabajador_id, hora_ingreso: '07:30', hora_salida: '15:00' }] });
+  const f = (await hoja('2026-09-26')).r.body.filas;
+  assert.equal(f.find((x) => x.trabajador_id === a.trabajador_id).horas_trabajadas, 5.5);
+  assert.equal(f.find((x) => x.trabajador_id === a.trabajador_id).sobretiempo_h, 0);
+  assert.equal(f.find((x) => x.trabajador_id === b.trabajador_id).sobretiempo_h, 2);
+});
+
+test('CP21 tareo: registra la tardanza respecto del horario de la obra', async () => {
+  const { obra, r } = await hoja('2026-09-22');
+  const a = r.body.filas[0];
+  await request(app).put('/api/asistencias').send({ obra_id: obra, fecha: '2026-09-22', registros: [
+    { trabajador_id: a.trabajador_id, hora_ingreso: '08:15', hora_salida: '17:00' }] });
+  const f = (await hoja('2026-09-22')).r.body.filas.find((x) => x.trabajador_id === a.trabajador_id);
+  assert.equal(f.tardanza_min, 45);
+  assert.equal(f.horas_trabajadas, 7.75);
+});
+
+test('CP22 tareo: si una fila es inválida no se guarda ninguna', async () => {
+  const { obra, r } = await hoja('2026-09-23');
+  const [a, b, c] = r.body.filas;
+  const p = await request(app).put('/api/asistencias').send({ obra_id: obra, fecha: '2026-09-23', registros: [
+    { trabajador_id: a.trabajador_id, hora_ingreso: '07:30', hora_salida: '17:00' },
+    { trabajador_id: b.trabajador_id, hora_ingreso: '17:00', hora_salida: '07:30' },
+    { trabajador_id: c.trabajador_id, asistio: false, hora_ingreso: '07:30' },
+    { trabajador_id: 999999, hora_ingreso: '07:30' }] });
+  assert.equal(p.status, 400);
+  assert.deepEqual(p.body.errores.map((e) => e.fila), [2, 3, 4]);
+  assert.equal((await hoja('2026-09-23')).r.body.resumen.registrados, 0);
+});
+
+test('CP23 tareo: rechaza fechas futuras y parámetros incompletos', async () => {
+  const { obra, r } = await hoja('2026-09-21');
+  const p = await request(app).put('/api/asistencias').send({ obra_id: obra, fecha: '2099-01-05', registros: [
+    { trabajador_id: r.body.filas[0].trabajador_id, hora_ingreso: '07:30' }] });
+  assert.equal(p.status, 400);
+  assert.equal((await request(app).get('/api/asistencias?obra_id=1')).status, 400);
+  assert.equal((await request(app).get('/api/asistencias?obra_id=9999&fecha=2026-09-21')).status, 404);
+});
