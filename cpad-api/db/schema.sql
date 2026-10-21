@@ -91,3 +91,16 @@ CREATE TABLE IF NOT EXISTS asistencia (
 CREATE INDEX IF NOT EXISTS ix_asistencia_obra_fecha ON asistencia(obra_id, fecha);
 DROP TRIGGER IF EXISTS tg_asistencia_touch ON asistencia;
 CREATE TRIGGER tg_asistencia_touch BEFORE UPDATE ON asistencia FOR EACH ROW EXECUTE FUNCTION fn_touch();
+
+-- Sprint 2 (semana 7): cierre de la asistencia semanal por obra (lunes a domingo)
+CREATE TABLE IF NOT EXISTS semana_cierre (
+  obra_id         INTEGER NOT NULL REFERENCES obra(id),
+  semana_inicio   DATE NOT NULL,
+  cerrado_en      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  observacion     VARCHAR(200),
+  PRIMARY KEY (obra_id, semana_inicio),
+  CONSTRAINT ck_semana_lunes CHECK (EXTRACT(ISODOW FROM semana_inicio) = 1)
+);
+
+-- Semana 7: «de corrido» = el trabajador no tomó la hora de almuerzo (no se descuenta)
+ALTER TABLE asistencia ADD COLUMN IF NOT EXISTS de_corrido BOOLEAN NOT NULL DEFAULT FALSE;

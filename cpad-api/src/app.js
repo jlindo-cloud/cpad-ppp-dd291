@@ -1,5 +1,7 @@
 'use strict';
 const express = require('express');
+// Las fechas (DATE) se devuelven como texto AAAA-MM-DD, sin conversión de zona horaria
+require('pg').types.setTypeParser(1082, (v) => v);
 
 class HttpError extends Error {
   constructor(status, message, details) { super(message); this.status = status; this.details = details; }
@@ -138,7 +140,7 @@ function createApp(pool, { staticDir } = {}) {
 
   app.get('/api/salud', ah(async (_req, res) => {
     await pool.query('SELECT 1');
-    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.3.0-beta' });
+    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.4.0-beta' });
   }));
 
   app.use('/api/categorias', crud(pool, 'categoria', validarCatalogo, { order: 'nombre' }));

@@ -220,7 +220,7 @@ test('CP19 tareo: corregir la hoja actualiza el registro sin duplicarlo', async 
   assert.equal(h.filas.find((x) => x.trabajador_id === a.trabajador_id).sobretiempo_h, 3);
 });
 
-test('CP20 tareo: el sábado usa la salida de las 13:00 y no descuenta almuerzo', async () => {
+test('CP20 tareo: el sábado usa la salida de las 13:00 y descuenta almuerzo solo si la jornada se extiende', async () => {
   const { obra, r } = await hoja('2026-09-26');
   const [a, b] = r.body.filas;
   await request(app).put('/api/asistencias').send({ obra_id: obra, fecha: '2026-09-26', registros: [
@@ -229,7 +229,9 @@ test('CP20 tareo: el sábado usa la salida de las 13:00 y no descuenta almuerzo'
   const f = (await hoja('2026-09-26')).r.body.filas;
   assert.equal(f.find((x) => x.trabajador_id === a.trabajador_id).horas_trabajadas, 5.5);
   assert.equal(f.find((x) => x.trabajador_id === a.trabajador_id).sobretiempo_h, 0);
-  assert.equal(f.find((x) => x.trabajador_id === b.trabajador_id).sobretiempo_h, 2);
+  // Salida 15:00 sin «de corrido»: almorzó de 13:00 a 14:00
+  assert.equal(f.find((x) => x.trabajador_id === b.trabajador_id).horas_trabajadas, 6.5);
+  assert.equal(f.find((x) => x.trabajador_id === b.trabajador_id).sobretiempo_h, 1);
 });
 
 test('CP21 tareo: registra la tardanza respecto del horario de la obra', async () => {
@@ -262,4 +264,99 @@ test('CP23 tareo: rechaza fechas futuras y parámetros incompletos', async () =>
   assert.equal(p.status, 400);
   assert.equal((await request(app).get('/api/asistencias?obra_id=1')).status, 400);
   assert.equal((await request(app).get('/api/asistencias?obra_id=9999&fecha=2026-09-21')).status, 404);
+});
+
+// ---------- Semana 7: resumen semanal y cierre (HU06) ----------
+async function obraSemana() {
+  const o = await request(app).post('/api/obras').send({ codigo: 'SEM01', nombre: 'Obra para pruebas de semana' });
+  const lote = await request(app).post('/api/trabajadores/lote').send({ trabajadores: [
+    { dni: '50000001', apellidos: 'Semana Uno', nombres: 'Ana', categoria: 'OPERARIO', especialidad: 'ELECTRICIDAD', obra: 'SEM01' },
+    { dni: '50000002', apellidos: 'Semana Dos', nombres: 'Beto', categoria: 'OFICIAL', especialidad: 'ELECTRICIDAD', obra: 'SEM01' }] });
+  assert.equal(lote.status, 201);
+  const ts = (await request(app).get(`/api/trabajadores?obra_id=${o.body.id}`)).body;
+  return { obra: o.body.id, a: ts.find((x) => x.dni === '50000001').id, b: ts.find((x) => x.dni === '50000002').id };
+}
+const dia = (obra, fecha, registros) => request(app).put('/api/asistencias').send({ obra_id: obra, fecha, registros });
+let S;
+
+test('CP24 semana: resume por trabajador días, faltas, horas, sobretiempo y domingo', async () => {
+  S = await obraSemana();
+  const L = ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02'];
+  for (const f of L) {
+    const p = await dia(S.obra, f, [
+      { trabajador_id: S.a, hora_ingreso: '07:30', hora_salida: '19:00' },
+      f === '2026-09-30' ? { trabajador_id: S.b, asistio: false } : { trabajador_id: S.b, hora_ingreso: '07:30', hora_salida: '17:00' }]);
+    assert.equal(p.status, 200);
+  }
+  await dia(S.obra, '2026-10-03', [
+    { trabajador_id: S.a, hora_ingreso: '07:30', hora_salida: '16:00', de_corrido: true, observacion: 'De corrido' },
+    { trabajador_id: S.b, hora_ingreso: '07:30', hora_salida: '13:00' }]);
+  await dia(S.obra, '2026-10-04', [{ trabajador_id: S.a, hora_ingreso: '07:30', hora_salida: '12:30' }]);
+  const r = await request(app).get(`/api/asistencias/semana?obra_id=${S.obra}&fecha=2026-10-01`);
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.body.semana.inicio, r.body.semana.fin], ['2026-09-28', '2026-10-04']);
+  const a = r.body.filas.find((x) => x.trabajador_id === S.a);
+  const b = r.body.filas.find((x) => x.trabajador_id === S.b);
+  assert.deepEqual([a.dias_asistidos, a.faltas, a.horas_trabajadas, a.sobretiempo_h, a.horas_domingo], [6, 0, 61, 13, 5]);
+  assert.deepEqual([b.dias_asistidos, b.faltas, b.horas_trabajadas, b.sobretiempo_h, b.sin_marcar], [5, 1, 39.5, 0, 0]);
+  assert.equal(a.dias[6].estado, 'A');
+  assert.equal(r.body.cierre, null);
+});
+
+test('CP25 semana: no se cierra si hay días sin marcar o sin hora de salida', async () => {
+  const lote = await request(app).post('/api/trabajadores/lote').send({ trabajadores: [
+    { dni: '50000003', apellidos: 'Semana Tres', nombres: 'Ciro', categoria: 'AYUDANTE', especialidad: 'ELECTRICIDAD', obra: 'SEM01', fecha_ingreso: '2026-10-02' }] });
+  assert.equal(lote.status, 201);
+  const c = (await request(app).get('/api/trabajadores/dni/50000003')).body.id;
+  const r = await request(app).post('/api/asistencias/semana/cierre').send({ obra_id: S.obra, fecha: '2026-09-28' });
+  assert.equal(r.status, 409);
+  // Ingresó el viernes: solo viernes y sábado cuentan como pendientes, no los días previos a su ingreso
+  assert.deepEqual(r.body.pendientes.map((p) => [p.trabajador_id, p.sin_marcar]), [[c, 2]]);
+  await dia(S.obra, '2026-10-02', [{ trabajador_id: c, hora_ingreso: '07:30' }]);
+  await dia(S.obra, '2026-10-03', [{ trabajador_id: c, asistio: false }]);
+  const r2 = await request(app).post('/api/asistencias/semana/cierre').send({ obra_id: S.obra, fecha: '2026-09-28' });
+  assert.equal(r2.status, 409);
+  assert.equal(r2.body.pendientes[0].sin_salida, 1);
+  await dia(S.obra, '2026-10-02', [{ trabajador_id: c, hora_ingreso: '07:30', hora_salida: '17:00' }]);
+});
+
+test('CP26 semana: el cierre bloquea la corrección de cualquier día de esa semana', async () => {
+  const r = await request(app).post('/api/asistencias/semana/cierre').send({ obra_id: S.obra, fecha: '2026-10-02', observacion: 'Revisada' });
+  assert.equal(r.status, 201);
+  assert.ok(r.body.cierre.cerrado_en);
+  assert.equal((await request(app).post('/api/asistencias/semana/cierre').send({ obra_id: S.obra, fecha: '2026-09-28' })).status, 409);
+  const p = await dia(S.obra, '2026-10-04', [{ trabajador_id: S.b, hora_ingreso: '07:30', hora_salida: '12:00' }]);
+  assert.equal(p.status, 409);
+  const h = await request(app).get(`/api/asistencias?obra_id=${S.obra}&fecha=2026-09-29`);
+  assert.equal(h.body.semana_cerrada, true);
+});
+
+test('CP27 semana: la reapertura permite volver a corregir', async () => {
+  const d = await request(app).delete(`/api/asistencias/semana/cierre?obra_id=${S.obra}&fecha=2026-09-30`);
+  assert.equal(d.status, 200);
+  assert.equal(d.body.cierre, null);
+  assert.equal((await dia(S.obra, '2026-09-30', [{ trabajador_id: S.b, hora_ingreso: '07:30', hora_salida: '17:00' }])).status, 200);
+  assert.equal((await request(app).delete(`/api/asistencias/semana/cierre?obra_id=${S.obra}&fecha=2026-09-30`)).status, 404);
+});
+
+test('CP28 semana: no se cierra una semana que aún no termina', async () => {
+  const r = await request(app).post('/api/asistencias/semana/cierre').send({ obra_id: S.obra, fecha: '2099-01-05' });
+  assert.equal(r.status, 400);
+  assert.equal((await request(app).get(`/api/asistencias/semana?obra_id=${S.obra}`)).status, 400);
+});
+
+test('CP29 tareo: «de corrido» no descuenta el almuerzo y suma esa hora al sobretiempo', async () => {
+  const { obra, r } = await hoja('2026-09-24');
+  const [a, b] = r.body.filas;
+  await request(app).put('/api/asistencias').send({ obra_id: obra, fecha: '2026-09-24', registros: [
+    { trabajador_id: a.trabajador_id, hora_ingreso: '07:30', hora_salida: '17:00', de_corrido: true },
+    { trabajador_id: b.trabajador_id, hora_ingreso: '07:30', hora_salida: '17:00' }] });
+  const f = (await hoja('2026-09-24')).r.body.filas;
+  const fa = f.find((x) => x.trabajador_id === a.trabajador_id), fb = f.find((x) => x.trabajador_id === b.trabajador_id);
+  assert.deepEqual([fa.de_corrido, fa.horas_trabajadas, fa.sobretiempo_h], [true, 9.5, 1]);
+  assert.deepEqual([fb.de_corrido, fb.horas_trabajadas, fb.sobretiempo_h], [false, 8.5, 0]);
+  await request(app).put('/api/asistencias').send({ obra_id: obra, fecha: '2026-09-26', registros: [
+    { trabajador_id: a.trabajador_id, hora_ingreso: '07:30', hora_salida: '16:00', de_corrido: true }] });
+  const s = (await hoja('2026-09-26')).r.body.filas.find((x) => x.trabajador_id === a.trabajador_id);
+  assert.deepEqual([s.horas_trabajadas, s.sobretiempo_h], [8.5, 3]);
 });

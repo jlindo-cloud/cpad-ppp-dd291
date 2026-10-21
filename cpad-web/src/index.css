@@ -1,24 +1,38 @@
 @import "tailwindcss";
-@import "@fontsource/archivo/400.css";
-@import "@fontsource/archivo/500.css";
-@import "@fontsource/archivo/600.css";
-@import "@fontsource/archivo/700.css";
+@import "@fontsource-variable/archivo/wdth.css";
 
 @theme {
-  --font-sans: "Archivo", system-ui, sans-serif;
+  --font-sans: "Archivo Variable", "Archivo", system-ui, sans-serif;
   --color-tinta: #1d2a36;      /* texto y barra lateral */
+  --color-tinta-2: #4a5866;    /* texto secundario */
   --color-hoja: #ffffff;
-  --color-fondo: #eef1f4;
-  --color-linea: #d5dce3;
-  --color-coez: #c43d1f;       /* rojo del logotipo: acciones principales */
+  --color-fondo: #f3f5f7;
+  --color-linea: #e1e6eb;
+  --color-linea-2: #c9d1d9;
+  --color-coez: #c43d1f;       /* rojo del logotipo: acción principal */
+  --color-coez-osc: #a3321a;
+  --color-ok: #2e7d4f;         /* asistió / semana cerrada */
+  --color-pend: #a86a12;       /* pendiente de marcar */
   --color-capataz: #f3dc55;    /* mismos colores que el formato impreso */
   --color-oficial: #5cb8dc;
   --color-operario: #f4c7d0;
   --color-ayudante: #d8e5c4;
 }
 
-body { @apply bg-fondo text-tinta font-sans antialiased; }
-input, select, button { font: inherit; }
+body { @apply bg-fondo text-tinta font-sans antialiased; font-size: 14px; }
+input, select, button, textarea { font: inherit; }
 .num { font-variant-numeric: tabular-nums; }
+/* Títulos en ancho expandido: la rotulación de un plano de obra */
+.titulo { font-variation-settings: "wdth" 118; font-weight: 650; letter-spacing: -0.01em; }
+.marca { font-variation-settings: "wdth" 125; font-weight: 750; letter-spacing: 0.02em; }
 :focus-visible { outline: 2px solid var(--color-coez); outline-offset: 2px; }
+@utility campo { @apply h-9 rounded-md border border-linea-2 bg-white px-2.5 text-[14px] text-tinta shadow-[inset_0_1px_0_rgba(29,42,54,0.04)] transition-colors hover:border-tinta-2 disabled:cursor-not-allowed disabled:border-linea disabled:bg-fondo disabled:text-tinta-2/50; }
+@utility campo-sm { @apply h-8 rounded border border-linea-2 bg-white px-2 text-[13px] text-tinta hover:border-tinta-2 disabled:border-transparent disabled:bg-transparent disabled:text-transparent; }
+@utility btn { @apply inline-flex h-9 items-center gap-2 rounded-md px-4 text-[14px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+@utility btn-primario { @apply btn bg-coez text-white hover:bg-coez-osc; }
+@utility btn-secundario { @apply btn border border-linea-2 bg-white text-tinta hover:border-tinta-2; }
+@utility btn-quieto { @apply btn px-2.5 text-tinta-2 hover:bg-linea/60 hover:text-tinta; }
+.tabla th { @apply whitespace-nowrap px-3 py-2.5 text-left text-[12px] font-medium text-tinta-2; }
+.tabla td { @apply px-3 py-2; }
+.tabla tbody tr { @apply border-t border-linea; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

@@ -40,7 +40,10 @@ Las pruebas levantan un PostgreSQL embebido temporal, aplican el esquema y los d
 | GET, POST | /api/trabajadores | Listar (filtros `obra_id`, `categoria_id`, `especialidad_id`, `activo`, `q`) / crear |
 | GET | /api/trabajadores/dni/:dni | Buscar por DNI |
 | GET | /api/asistencias?obra_id=&fecha= | Hoja del día de una obra, con horas calculadas |
-| PUT | /api/asistencias | Registro o corrección de la hoja del día (todo o nada) |
+| PUT | /api/asistencias | Registro o corrección de la hoja del día (todo o nada); 409 si la semana está cerrada |
+| GET | /api/asistencias/semana?obra_id=&fecha= | Resumen de lunes a domingo por trabajador: días, faltas, horas, sobretiempo, domingo y pendientes |
+| POST | /api/asistencias/semana/cierre | Cierra la semana (sábado transcurrido y sin días pendientes) |
+| DELETE | /api/asistencias/semana/cierre?obra_id=&fecha= | Reabre una semana cerrada para corregirla |
 | POST | /api/trabajadores/lote | Carga masiva del padrón (hasta 500 filas, todo o nada; acepta `categoria`, `especialidad` y `obra` por nombre) |
 | GET, PUT, DELETE | /api/trabajadores/:id | Consultar / editar / dar de baja |
 

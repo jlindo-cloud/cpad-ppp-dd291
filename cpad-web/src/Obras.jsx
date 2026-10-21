@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from './api.js';
+import { Encabezado, Rotulo } from './ui.jsx';
 
 const h = (t) => (t ? t.slice(0, 5) : '—');
 export default function Obras() {
@@ -7,18 +8,20 @@ export default function Obras() {
   useEffect(() => { api.get('/obras?activo=true').then(setObras); }, []);
   return (
     <section>
-      <h1 className="mb-5 text-2xl font-bold">Obras</h1>
-      <div className="grid gap-4 md:grid-cols-2">
+      <Encabezado titulo="Obras" detalle="Cada obra es un centro de costo con su propio horario de trabajo." />
+      <div className="space-y-4">
         {obras.map((o) => (
-          <article key={o.id} className="rounded border border-linea bg-hoja p-5">
-            <div className="text-sm font-semibold text-coez">{o.codigo}</div>
-            <h2 className="mt-1 text-lg font-semibold leading-snug">{o.nombre}</h2>
-            <p className="mt-1 text-sm text-tinta/70">{o.direccion}{o.distrito ? `, ${o.distrito}` : ''}</p>
-            <dl className="num mt-4 grid grid-cols-3 gap-2 border-t border-linea pt-3 text-sm">
-              <div><dt className="text-xs text-tinta/60">Lunes a viernes</dt><dd>{h(o.hora_ingreso)} a {h(o.hora_salida)}</dd></div>
-              <div><dt className="text-xs text-tinta/60">Almuerzo</dt><dd>{h(o.almuerzo_inicio)} a {h(o.almuerzo_fin)}</dd></div>
-              <div><dt className="text-xs text-tinta/60">Sábado</dt><dd>{h(o.hora_ingreso)} a {h(o.hora_salida_sabado)}</dd></div>
-            </dl>
+          <article key={o.id} className="overflow-hidden rounded-lg border border-linea-2 bg-hoja shadow-[0_1px_2px_rgba(29,42,54,0.06)]">
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-linea-2 px-4 py-3">
+              <span className="num rounded bg-tinta px-2 py-0.5 text-[12px] font-medium text-white">{o.codigo}</span>
+              <h2 className="titulo text-[17px]">{o.nombre}</h2>
+            </div>
+            <Rotulo celdas={[
+              { etiqueta: 'Dirección', valor: `${o.direccion || '—'}${o.distrito ? `, ${o.distrito}` : ''}`, ancho: 'col-span-2 md:col-span-6' },
+              { etiqueta: 'Lunes a viernes', valor: `${h(o.hora_ingreso)} a ${h(o.hora_salida)}`, ancho: 'md:col-span-2' },
+              { etiqueta: 'Almuerzo', valor: `${h(o.almuerzo_inicio)} a ${h(o.almuerzo_fin)}`, ancho: 'md:col-span-2' },
+              { etiqueta: 'Sábado', valor: `${h(o.hora_ingreso)} a ${h(o.hora_salida_sabado)}`, ancho: 'md:col-span-2' },
+            ]} />
           </article>
         ))}
       </div>

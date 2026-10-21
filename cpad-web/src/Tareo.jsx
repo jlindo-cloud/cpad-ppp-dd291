@@ -1,30 +1,50 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from './api.js';
 import Categoria from './Categoria.jsx';
+import { Aviso, Campo, Encabezado, Icono, Rotulo, horas } from './ui.jsx';
+import { diaSemana, hoyLima, larga, sumar } from './fechas.js';
 
+const sumarHora = (t, o) => { const m = aMin(t) + aMin(o.almuerzo_fin) - aMin(o.almuerzo_inicio); return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
 const aMin = (t) => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-const hoyLima = () => new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10);
-const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 
-/** Vista previa del sobretiempo con la misma regla que la API: salida posterior a la del horario de la obra. */
+/** Vista previa del sobretiempo con la misma regla que la API (almuerzo y «de corrido» incluidos). */
 function sobretiempo(fila, obra, dow) {
-  if (fila.estado !== 'asistio' || !fila.salida || dow === 0) return null;
-  const prog = aMin(dow === 6 ? obra.hora_salida_sabado : obra.hora_salida);
-  return Math.max(0, aMin(fila.salida) - prog) / 60;
+  if (fila.estado !== 'asistio' || !fila.salida || !fila.ingreso || dow === 0) return null;
+  const ing = aMin(fila.ingreso), sal = aMin(fila.salida);
+  const progIng = aMin(obra.hora_ingreso), progSal = aMin(dow === 6 ? obra.hora_salida_sabado : obra.hora_salida);
+  const dur = aMin(obra.almuerzo_fin) - aMin(obra.almuerzo_inicio);
+  const [a0, a1] = dow === 6 ? [progSal, progSal + dur] : [aMin(obra.almuerzo_inicio), aMin(obra.almuerzo_fin)];
+  const cruce = (a, b, c, d) => Math.max(0, Math.min(b, d) - Math.max(a, c));
+  let extra = Math.max(0, sal - progSal);
+  if (!fila.corrido) extra -= cruce(progSal, sal, a0, a1);
+  else extra += cruce(Math.max(ing, progIng), Math.min(sal, progSal), a0, a1);
+  return Math.max(0, extra) / 60;
 }
 
-export default function Tareo() {
-  const params = new URLSearchParams(location.search);
-  const [obras, setObras] = useState([]);
-  const [obraId, setObraId] = useState('');
-  const [fecha, setFecha] = useState(params.get('fecha') || hoyLima());
+function Marcar({ valor, onChange, fila, bloqueado }) {
+  const op = [['asistio', 'Asistió'], ['falto', 'Faltó']];
+  return (
+    <div role="group" aria-label={`Asistencia de la fila ${fila}`} className="inline-flex rounded-md border border-linea-2 bg-white p-0.5">
+      {op.map(([v, t]) => {
+        const on = valor === v;
+        return (
+          <button key={v} type="button" disabled={bloqueado} aria-pressed={on} onClick={() => onChange(on ? '' : v)}
+            className={`h-7 rounded px-2.5 text-[13px] transition-colors disabled:cursor-not-allowed ${on ? (v === 'asistio' ? 'bg-ok text-white' : 'bg-tinta text-white') : 'text-tinta-2 hover:bg-fondo hover:text-tinta'}`}>
+            {t}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function Tareo({ obras, obraId, setObraId, fecha, setFecha, ir }) {
   const [hoja, setHoja] = useState(null);
   const [filas, setFilas] = useState({});
   const [errores, setErrores] = useState({});
   const [aviso, setAviso] = useState(null);
   const [guardando, setGuardando] = useState(false);
-
-  useEffect(() => { api.get('/obras?activo=true').then((o) => { setObras(o); if (o[0]) setObraId(String(o[0].id)); }); }, []);
+  const [cambios, setCambios] = useState(false);
 
   async function cargar() {
     if (!obraId || !fecha) return;
@@ -32,17 +52,19 @@ export default function Tareo() {
     setHoja(h);
     setFilas(Object.fromEntries(h.filas.map((f) => [f.trabajador_id, {
       estado: !f.registrado ? '' : f.asistio ? 'asistio' : 'falto',
-      ingreso: f.hora_ingreso || '', salida: f.hora_salida || '', observacion: f.observacion || '',
+      ingreso: f.hora_ingreso || '', salida: f.hora_salida || '', corrido: !!f.de_corrido, observacion: f.observacion || '',
     }])));
-    setErrores({}); setAviso(null);
+    setErrores({}); setCambios(false);
   }
-  useEffect(() => { cargar().catch((e) => setAviso({ tipo: 'error', texto: e.message })); }, [obraId, fecha]);
+  useEffect(() => { setAviso(null); cargar().catch((e) => setAviso({ tono: 'error', texto: e.message })); }, [obraId, fecha]);
 
-  const dow = useMemo(() => new Date(fecha + 'T12:00:00Z').getUTCDay(), [fecha]);
-  const cambiar = (id, campo, valor) => setFilas((f) => ({ ...f, [id]: { ...f[id], [campo]: valor } }));
+  const dow = diaSemana(fecha);
+  const cerrada = hoja?.semana_cerrada;
+  const cambiar = (id, campo, valor) => { setCambios(true); setFilas((f) => ({ ...f, [id]: { ...f[id], [campo]: valor } })); };
 
   function completarConHorario() {
     const o = hoja.obra; const salida = dow === 6 ? o.hora_salida_sabado : o.hora_salida;
+    setCambios(true);
     setFilas((f) => Object.fromEntries(Object.entries(f).map(([id, x]) => [id,
       x.estado === 'asistio' ? { ...x, ingreso: x.ingreso || o.hora_ingreso, salida: x.salida || salida } : x])));
   }
@@ -53,19 +75,19 @@ export default function Tareo() {
       const x = filas[id];
       return x.estado === 'falto'
         ? { trabajador_id: id, asistio: false, observacion: x.observacion || null }
-        : { trabajador_id: id, asistio: true, hora_ingreso: x.ingreso || null, hora_salida: x.salida || null, observacion: x.observacion || null };
+        : { trabajador_id: id, asistio: true, hora_ingreso: x.ingreso || null, hora_salida: x.salida || null, de_corrido: !!x.corrido, observacion: x.observacion || null };
     });
-    if (!registros.length) { setAviso({ tipo: 'error', texto: 'Marca la asistencia de al menos un trabajador antes de guardar.' }); return; }
+    if (!registros.length) { setAviso({ tono: 'error', texto: 'Marca la asistencia de al menos un trabajador antes de guardar.' }); return; }
     setGuardando(true);
     try {
       const r = await api.put('/asistencias', { obra_id: Number(obraId), fecha, registros });
       await cargar();
-      setAviso({ tipo: 'ok', texto: `Hoja guardada: ${r.guardados} registros.` });
+      setAviso({ tono: 'ok', texto: `Hoja guardada: ${r.guardados} registros.` });
     } catch (e) {
       const porId = {};
       (e.datos?.errores || []).forEach((er) => { porId[ids[er.fila - 1]] = er.errores.join('; '); });
       setErrores(porId);
-      setAviso({ tipo: 'error', texto: e.message });
+      setAviso({ tono: 'error', texto: e.message });
     } finally { setGuardando(false); }
   }
 
@@ -76,100 +98,107 @@ export default function Tareo() {
     pendientes: marcados.filter((x) => !x.estado).length,
     sobretiempo: hoja.filas.reduce((s, f) => s + (sobretiempo(filas[f.trabajador_id] || {}, hoja.obra, dow) || 0), 0),
   };
+  const o = hoja?.obra;
 
   return (
     <section>
-      <header className="mb-4 flex flex-wrap items-end gap-4">
-        <div className="mr-auto">
-          <h1 className="text-2xl font-bold">Tareo diario</h1>
-          <p className="text-sm text-tinta/70">Transcribe la hoja “Control de asistencia – obreros” de la obra.</p>
-        </div>
-        <label className="text-sm">
-          <span className="mb-1 block text-xs text-tinta/70">Obra</span>
-          <select value={obraId} onChange={(e) => setObraId(e.target.value)} className="rounded border border-linea bg-white px-3 py-2">
-            {obras.map((o) => <option key={o.id} value={o.id}>{o.codigo} · {o.nombre}</option>)}
+      <Encabezado titulo="Tareo diario" detalle="Transcribe la hoja «Control de asistencia – obreros» que envía el capataz.">
+        <Campo etiqueta="Obra">
+          <select value={obraId} onChange={(e) => setObraId(e.target.value)} className="campo max-w-[26rem]">
+            {obras.map((x) => <option key={x.id} value={x.id}>{x.codigo} · {x.nombre}</option>)}
           </select>
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block text-xs text-tinta/70">Fecha</span>
-          <input type="date" value={fecha} max={hoyLima()} onChange={(e) => setFecha(e.target.value)} className="num rounded border border-linea bg-white px-3 py-2" />
-        </label>
-      </header>
+        </Campo>
+        <Campo etiqueta="Fecha">
+          <div className="flex items-center gap-1">
+            <button type="button" className="btn-quieto h-9" aria-label="Día anterior" onClick={() => setFecha(sumar(fecha, -1))}><Icono n="izq" /></button>
+            <input type="date" value={fecha} max={hoyLima()} onChange={(e) => e.target.value && setFecha(e.target.value)} className="campo num" />
+            <button type="button" className="btn-quieto h-9" aria-label="Día siguiente" disabled={fecha >= hoyLima()} onClick={() => setFecha(sumar(fecha, 1))}><Icono n="der" /></button>
+          </div>
+        </Campo>
+      </Encabezado>
 
       {hoja && (
-        <>
-          <div className="mb-3 flex flex-wrap items-center gap-x-8 gap-y-2 rounded border border-linea bg-hoja px-5 py-3 text-sm">
-            <div><span className="text-tinta/60">Día </span><strong className="capitalize">{DIAS[dow]}</strong></div>
-            <div className="num"><span className="text-tinta/60">Horario </span>
-              {dow === 0 ? 'día no programado' : `${hoja.obra.hora_ingreso} a ${dow === 6 ? hoja.obra.hora_salida_sabado : hoja.obra.hora_salida}`}
-              {dow >= 1 && dow <= 5 && <span className="text-tinta/60"> · almuerzo {hoja.obra.almuerzo_inicio} a {hoja.obra.almuerzo_fin}</span>}
-            </div>
-            <div className="num ml-auto flex gap-6">
-              <span><strong>{resumen.asistieron}</strong> asistieron</span>
-              <span><strong>{resumen.faltaron}</strong> faltaron</span>
-              <span><strong>{resumen.pendientes}</strong> sin marcar</span>
-              <span><strong>+{resumen.sobretiempo.toFixed(2).replace(/\.?0+$/, '')}</strong> h de sobretiempo</span>
-            </div>
+        <div className="overflow-hidden rounded-lg border border-linea-2 bg-hoja shadow-[0_1px_2px_rgba(29,42,54,0.06)]">
+          <Rotulo celdas={[
+            { etiqueta: 'Obra', valor: o.nombre, ancho: 'col-span-2 md:col-span-3' },
+            { etiqueta: 'Fecha', valor: <span className="first-letter:uppercase inline-block">{larga(fecha)}</span>, ancho: 'col-span-2 md:col-span-3' },
+            { etiqueta: 'Horario', valor: dow === 0 ? 'Día no programado' : `${o.hora_ingreso} a ${dow === 6 ? o.hora_salida_sabado : o.hora_salida}`, ancho: 'md:col-span-2' },
+            { etiqueta: 'Almuerzo', valor: dow >= 1 && dow <= 5 ? `${o.almuerzo_inicio} a ${o.almuerzo_fin}` : dow === 6 ? `${o.hora_salida_sabado} a ${sumarHora(o.hora_salida_sabado, o)}` : 'No aplica', ancho: 'md:col-span-2' },
+            { etiqueta: 'Semana', valor: cerrada ? <span className="inline-flex items-center gap-1 text-ok"><Icono n="candado" className="size-3.5" />Cerrada</span> : 'Abierta', ancho: 'md:col-span-2' },
+          ]} />
+
+          <div className="flex flex-wrap items-center gap-x-7 gap-y-1 border-b border-linea bg-fondo/60 px-4 py-2.5 text-[13px] num">
+            <span><strong className="text-[15px] text-ok">{resumen.asistieron}</strong> asistieron</span>
+            <span><strong className="text-[15px]">{resumen.faltaron}</strong> faltaron</span>
+            <span className={resumen.pendientes ? 'text-pend' : ''}><strong className="text-[15px]">{resumen.pendientes}</strong> sin marcar</span>
+            <span className="ml-auto"><strong className="text-[15px]">{horas(resumen.sobretiempo) || 0}</strong> h de sobretiempo</span>
           </div>
 
-          <div className="overflow-x-auto rounded border border-linea bg-hoja">
-            <table className="w-full text-sm">
-              <thead className="bg-fondo text-left text-xs text-tinta/70">
+          {cerrada && (
+            <Aviso tono="ok" icono="candado" className="m-4 mb-0">
+              La semana de esta hoja está cerrada y no admite cambios. Para corregirla, reábrela en{' '}
+              <button className="font-medium underline" onClick={() => ir('semana')}>Resumen semanal</button>.
+            </Aviso>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="tabla w-full min-w-[1080px]">
+              <thead>
                 <tr>
-                  <th className="w-12 whitespace-nowrap px-3 py-2">N.°</th><th className="px-3 py-2">Apellidos y nombres</th><th className="px-3 py-2">DNI</th>
-                  <th className="px-3 py-2">Categoría</th><th className="px-3 py-2">Asistencia</th><th className="px-3 py-2">Ingreso</th>
-                  <th className="px-3 py-2">Salida</th><th className="px-3 py-2 text-right">Sobretiempo</th><th className="px-3 py-2">Observación</th>
+                  <th className="w-10 text-right">N.°</th><th>Apellidos y nombres</th><th>DNI</th><th>Categoría</th>
+                  <th>Asistencia</th><th>Ingreso</th><th>Salida</th><th title="No tomó la hora de almuerzo">De corrido</th><th className="text-right">Sobretiempo</th><th className="w-[18%]">Observación</th>
                 </tr>
               </thead>
               <tbody>
                 {hoja.filas.map((f, i) => {
-                  const x = filas[f.trabajador_id] || {}; const st = sobretiempo(x, hoja.obra, dow); const err = errores[f.trabajador_id];
+                  const x = filas[f.trabajador_id] || {}; const st = sobretiempo(x, o, dow); const err = errores[f.trabajador_id];
+                  const borde = err ? 'shadow-[inset_3px_0_0_var(--color-coez)] bg-[#fcf0ed]' : x.estado === 'asistio' ? 'shadow-[inset_3px_0_0_var(--color-ok)]' : x.estado === 'falto' ? 'shadow-[inset_3px_0_0_var(--color-tinta)] bg-fondo/50' : '';
                   return (
-                    <tr key={f.trabajador_id} className={`border-t border-linea ${err ? 'bg-red-50' : x.estado === 'falto' ? 'bg-fondo/60' : ''}`}>
-                      <td className="num px-3 py-1.5 text-tinta/60">{i + 1}</td>
-                      <td className="px-3 py-1.5">
-                        <span className="dato-personal">{f.apellidos}, {f.nombres}</span>
-                        {err && <div role="alert" className="text-xs text-coez">{err}</div>}
+                    <tr key={f.trabajador_id} className={borde}>
+                      <td className="num text-right text-tinta-2">{i + 1}</td>
+                      <td className="min-w-52">
+                        <span className="dato-personal font-medium">{f.apellidos}, {f.nombres}</span>
+                        {err && <div role="alert" className="mt-0.5 text-[12px] text-coez-osc">{err}</div>}
                       </td>
-                      <td className="num px-3 py-1.5 dato-personal">{f.dni}</td>
-                      <td className="px-3 py-1.5"><Categoria nombre={f.categoria} /></td>
-                      <td className="px-3 py-1.5">
-                        <select aria-label={`Asistencia de la fila ${i + 1}`} value={x.estado} onChange={(e) => cambiar(f.trabajador_id, 'estado', e.target.value)}
-                          className="rounded border border-linea bg-white px-2 py-1">
-                          <option value="">Sin marcar</option><option value="asistio">Asistió</option><option value="falto">Faltó</option>
-                        </select>
-                      </td>
+                      <td className="num text-tinta-2"><span className="dato-personal">{f.dni}</span></td>
+                      <td><Categoria nombre={f.categoria} /></td>
+                      <td><Marcar valor={x.estado} fila={i + 1} bloqueado={cerrada} onChange={(v) => cambiar(f.trabajador_id, 'estado', v)} /></td>
                       {['ingreso', 'salida'].map((c) => (
-                        <td key={c} className="px-3 py-1.5">
-                          <input type="time" aria-label={`Hora de ${c} de la fila ${i + 1}`} disabled={x.estado !== 'asistio'} value={x[c] || ''}
-                            onChange={(e) => cambiar(f.trabajador_id, c, e.target.value)}
-                            className="num w-28 rounded border border-linea bg-white px-2 py-1 disabled:bg-transparent disabled:text-transparent" />
+                        <td key={c}>
+                          {cerrada ? <span className="num px-2 text-[13px]">{x[c] || ''}</span> : <input type="time" aria-label={`Hora de ${c} de la fila ${i + 1}`} disabled={cerrada || x.estado !== 'asistio'} value={x[c] || ''}
+                            onChange={(e) => cambiar(f.trabajador_id, c, e.target.value)} className="campo-sm num w-[6.3rem]" />}
                         </td>
                       ))}
-                      <td className="num px-3 py-1.5 text-right font-semibold">{st ? `+${st.toFixed(2).replace(/\.?0+$/, '')} h` : st === 0 ? <span className="font-normal text-tinta/40">0</span> : ''}</td>
-                      <td className="px-3 py-1.5">
-                        <input aria-label={`Observación de la fila ${i + 1}`} value={x.observacion || ''} maxLength={200}
-                          onChange={(e) => cambiar(f.trabajador_id, 'observacion', e.target.value)} className="w-full min-w-40 rounded border border-linea bg-white px-2 py-1" />
+                      <td>
+                        {x.estado === 'asistio' && (
+                          <input type="checkbox" aria-label={`De corrido, sin almuerzo, fila ${i + 1}`} checked={!!x.corrido} disabled={cerrada}
+                            onChange={(e) => cambiar(f.trabajador_id, 'corrido', e.target.checked)} className="size-4 accent-[var(--color-tinta)]" />
+                        )}
+                      </td>
+                      <td className="num text-right">{st ? <strong>+{horas(st)} h</strong> : st === 0 ? <span className="text-tinta-2/50">—</span> : ''}</td>
+                      <td>
+                        <input aria-label={`Observación de la fila ${i + 1}`} value={x.observacion || ''} maxLength={200} disabled={cerrada}
+                          onChange={(e) => cambiar(f.trabajador_id, 'observacion', e.target.value)}
+                          className="h-8 w-full min-w-32 rounded border border-transparent bg-transparent px-2 text-[13px] hover:border-linea-2 focus:border-linea-2 focus:bg-white disabled:hover:border-transparent" placeholder={cerrada ? '' : 'Añadir nota'} />
                       </td>
                     </tr>
                   );
                 })}
-                {!hoja.filas.length && <tr><td colSpan="9" className="px-3 py-6 text-center text-tinta/60">La obra no tiene trabajadores asignados. Regístralos en Trabajadores.</td></tr>}
+                {!hoja.filas.length && <tr><td colSpan="10" className="py-10 text-center text-tinta-2">La obra no tiene trabajadores asignados. Regístralos en Trabajadores.</td></tr>}
               </tbody>
             </table>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <button onClick={completarConHorario} className="rounded border border-tinta px-4 py-2 text-sm font-medium hover:bg-white">
-              Completar horas con el horario de la obra
-            </button>
-            <button onClick={guardar} disabled={guardando} className="rounded bg-coez px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">
-              {guardando ? 'Guardando…' : 'Guardar hoja'}
-            </button>
-            {aviso && <p role="status" className={`text-sm ${aviso.tipo === 'ok' ? 'text-emerald-700' : 'text-coez'}`}>{aviso.texto}</p>}
-          </div>
-        </>
+          {!cerrada && (
+            <div className="flex flex-wrap items-center gap-3 border-t border-linea-2 bg-fondo/60 px-4 py-3">
+              <button onClick={completarConHorario} className="btn-secundario"><Icono n="reloj" />Completar horas con el horario de la obra</button>
+              <span className="text-[13px] text-tinta-2">{cambios ? 'Hay cambios sin guardar.' : ''}</span>
+              <button onClick={guardar} disabled={guardando} className="btn-primario ml-auto">{guardando ? 'Guardando…' : 'Guardar hoja'}</button>
+            </div>
+          )}
+        </div>
       )}
+      {aviso && <Aviso tono={aviso.tono} icono={aviso.tono === 'ok' ? 'ok' : 'alerta'} className="mt-4">{aviso.texto}</Aviso>}
     </section>
   );
 }
