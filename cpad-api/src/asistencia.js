@@ -235,6 +235,7 @@ module.exports = function asistenciaRouter(pool, { HttpError, ah }) {
     res.json({ guardados: limpios.length });
   }));
 
+  r.resumenSemana = resumenSemana; r.obraActiva = obraActiva; // los usa el motor de planilla
   return r;
 };
 module.exports.calcular = calcular;

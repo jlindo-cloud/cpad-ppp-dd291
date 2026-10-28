@@ -104,3 +104,30 @@ CREATE TABLE IF NOT EXISTS semana_cierre (
 
 -- Semana 7: «de corrido» = el trabajador no tomó la hora de almuerzo (no se descuenta)
 ALTER TABLE asistencia ADD COLUMN IF NOT EXISTS de_corrido BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Sprint 3: motor de cálculo de la planilla semanal (HU07)
+-- Jornal, BUC y valor de la hora extra por categoría, con fecha de vigencia (cambian con la convención anual)
+CREATE TABLE IF NOT EXISTS jornal_categoria (
+  categoria_id      INTEGER NOT NULL REFERENCES categoria(id),
+  vigente_desde     DATE NOT NULL,
+  jornal            NUMERIC(8,2) NOT NULL CHECK (jornal > 0),
+  pct_buc           NUMERIC(5,2) NOT NULL CHECK (pct_buc >= 0),
+  valor_hora_extra  NUMERIC(8,2) NOT NULL CHECK (valor_hora_extra >= 0),
+  PRIMARY KEY (categoria_id, vigente_desde)
+);
+-- Porcentajes y factores del cálculo semanal, con fecha de vigencia
+CREATE TABLE IF NOT EXISTS parametro_planilla (
+  vigente_desde       DATE PRIMARY KEY,
+  movilidad_diaria    NUMERIC(8,2) NOT NULL,
+  dias_gratificacion  NUMERIC(6,2) NOT NULL,   -- jornales de gratificación ...
+  base_gratificacion  NUMERIC(6,2) NOT NULL,   -- ... por cada tantos días laborados
+  pct_bonif_extra     NUMERIC(5,2) NOT NULL,   -- Ley N.° 29714, sobre la gratificación
+  pct_vacaciones      NUMERIC(5,2) NOT NULL,
+  pct_cts             NUMERIC(5,2) NOT NULL,
+  pct_snp             NUMERIC(5,2) NOT NULL,
+  pct_essalud         NUMERIC(5,2) NOT NULL,
+  pct_sctr            NUMERIC(5,2) NOT NULL,
+  pct_sctr_pension    NUMERIC(5,2) NOT NULL
+);
+-- Caso especial: un trabajador puede figurar en el tareo con una categoría y cobrar con otra
+ALTER TABLE trabajador ADD COLUMN IF NOT EXISTS categoria_pago_id INTEGER REFERENCES categoria(id);

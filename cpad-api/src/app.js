@@ -71,6 +71,11 @@ function validarTrabajador(body) {
     if (!Number.isInteger(n) || n <= 0) errors.push('obra_id debe ser un entero positivo');
     else t.obra_id = n;
   } else t.obra_id = null;
+  if (body.categoria_pago_id !== undefined && body.categoria_pago_id !== null && body.categoria_pago_id !== '') {
+    const n = Number(body.categoria_pago_id);
+    if (!Number.isInteger(n) || n <= 0) errors.push('categoria_pago_id debe ser un entero positivo');
+    else t.categoria_pago_id = n;
+  } else t.categoria_pago_id = null;
   if (body.fecha_ingreso) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(body.fecha_ingreso) || isNaN(Date.parse(body.fecha_ingreso)))
       errors.push('fecha_ingreso debe tener el formato AAAA-MM-DD');
@@ -140,7 +145,7 @@ function createApp(pool, { staticDir } = {}) {
 
   app.get('/api/salud', ah(async (_req, res) => {
     await pool.query('SELECT 1');
-    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.4.0-beta' });
+    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.5.0-dev' });
   }));
 
   app.use('/api/categorias', crud(pool, 'categoria', validarCatalogo, { order: 'nombre' }));
@@ -205,7 +210,9 @@ function createApp(pool, { staticDir } = {}) {
     },
   }));
   app.use('/api/trabajadores', trabajadores);
-  app.use('/api/asistencias', require('./asistencia')(pool, { HttpError, ah }));
+  const asistencias = require('./asistencia')(pool, { HttpError, ah });
+  app.use('/api/asistencias', asistencias);
+  app.use('/api/planillas', require('./planilla')(pool, { HttpError, ah, resumenSemana: asistencias.resumenSemana, obraActiva: asistencias.obraActiva }));
 
   // En la beta, la misma aplicación sirve la interfaz web ya compilada
   if (staticDir) {

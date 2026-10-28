@@ -360,3 +360,47 @@ test('CP29 tareo: «de corrido» no descuenta el almuerzo y suma esa hora al sob
   const s = (await hoja('2026-09-26')).r.body.filas.find((x) => x.trabajador_id === a.trabajador_id);
   assert.deepEqual([s.horas_trabajadas, s.sobretiempo_h], [8.5, 3]);
 });
+
+// ---------- Sprint 3 · HU07: motor de cálculo de la planilla ----------
+const { calcularBoleta } = require('../src/planilla');
+const B30 = require('./boletas_semana30.json');
+
+test('CP30 planilla: el motor reproduce al céntimo las 11 boletas reales de la semana 30', async () => {
+  const pr = (await request(app).get('/api/planillas/parametros?fecha=2026-09-28')).body;
+  const J = Object.fromEntries(pr.jornales.map((j) => [j.categoria, j]));
+  for (const b of B30.boletas) {
+    const j = J[b.categoria_pago];
+    const r = calcularBoleta({ jornal: j.jornal, pct_buc: j.pct_buc, valor_hora_extra: j.valor_hora_extra, dias: b.dias, horas_extras: b.horas_extras, depositado: b.depositado }, pr.parametros);
+    for (const [k, v] of Object.entries(b.esperado)) assert.equal(r[k], v, `boleta ${b.boleta}: ${k}`);
+  }
+});
+
+test('CP31 planilla: solo se calcula sobre una semana cerrada', async () => {
+  const r = await request(app).post('/api/planillas/calculo').send({ obra_id: S.obra, fecha: '2026-09-28' });
+  assert.equal(r.status, 409);
+});
+
+test('CP32 planilla: exige jornal vigente para la categoría con la que se paga', async () => {
+  assert.equal((await request(app).post('/api/asistencias/semana/cierre').send({ obra_id: S.obra, fecha: '2026-09-28' })).status, 201);
+  const r = await request(app).post('/api/planillas/calculo').send({ obra_id: S.obra, fecha: '2026-09-28' });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.errores.length, 1); // el ayudante aún no tiene jornal registrado
+  assert.match(r.body.errores[0].errores[0], /jornal vigente/);
+});
+
+test('CP33 planilla: calcula la semana cerrada con horas extras, depósito y categoría de pago especial', async () => {
+  const c = (await request(app).get('/api/trabajadores/dni/50000003')).body;
+  const op = (await request(app).get('/api/categorias')).body.find((x) => x.nombre === 'OPERARIO').id;
+  const u = await request(app).put(`/api/trabajadores/${c.id}`).send({ dni: c.dni, apellidos: c.apellidos, nombres: c.nombres, categoria_id: c.categoria_id,
+    especialidad_id: c.especialidad_id, obra_id: c.obra_id, fecha_ingreso: c.fecha_ingreso, categoria_pago_id: op });
+  assert.equal(u.status, 200);
+  const r = await request(app).post('/api/planillas/calculo').send({ obra_id: S.obra, fecha: '2026-09-28',
+    horas_extras: { [S.a]: 2 }, depositado: { [S.a]: 1000 } });
+  assert.equal(r.status, 200);
+  const a = r.body.boletas.find((x) => x.trabajador_id === S.a);
+  assert.deepEqual([a.dias, a.horas_normales, a.horas_extras, a.neto, a.cuadre], [6, 48, 42.36, 1000, 'dominical']);
+  assert.equal(Math.round((a.total_remuneracion - a.snp) * 100), 100000);
+  const k = r.body.boletas.find((x) => x.trabajador_id === c.id);
+  assert.deepEqual([k.categoria_tareo, k.categoria_pago, k.jornal, k.cuadre], ['AYUDANTE', 'OPERARIO', 86.8, 'sin_deposito']);
+  assert.equal(r.body.totales.trabajadores, 3);
+});
