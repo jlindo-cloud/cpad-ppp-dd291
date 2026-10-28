@@ -8,15 +8,15 @@ por un sistema web con base de datos, conforme al régimen de construcción civi
 
 ## Metodología y versiones por sprint
 
-Scrum con un Sprint 0 de análisis (semanas 1 a 3) y sprints de dos semanas. Cada sprint deja una versión etiquetada:
+Scrum con un Sprint 0 de análisis (semanas 1 a 3) y sprints de dos semanas. Cada semana de desarrollo deja una versión publicada como rama del repositorio:
 
 | Versión | Sprint · semana | Entregable |
 |---|---|---|
-| [v0.1.0](../../releases/tag/v0.1.0) | Sprint 1 · semana 4 | Base de datos PostgreSQL y API REST de maestros (trabajadores, obras, categorías, especialidades); 12 pruebas |
-| [v0.2.0](../../releases/tag/v0.2.0) | Sprint 1 · semana 5 | Carga masiva del padrón e instalación automatizada de la base; 16 pruebas |
-| [v0.3.0](../../releases/tag/v0.3.0) | Sprint 2 · semana 6 | Tareo diario con cálculo de horas y sobretiempo e interfaz web (React, Vite, Tailwind CSS); 23 pruebas |
-| [v0.4.0](../../releases/tag/v0.4.0) | Sprint 2 · semana 7 | Resumen y cierre de la asistencia semanal, rediseño visual y regla del almuerzo («de corrido»); 29 pruebas |
-| [v0.5.0](../../releases/tag/v0.5.0) | Sprint 3 · semana 8 | Motor de cálculo de la planilla semanal, validado contra 11 boletas reales; 33 pruebas |
+| [v0.1.0](../../tree/v0.1.0) | Sprint 1 · semana 4 | Base de datos PostgreSQL y API REST de maestros (trabajadores, obras, categorías, especialidades); 12 pruebas |
+| [v0.2.0](../../tree/v0.2.0) | Sprint 1 · semana 5 | Carga masiva del padrón e instalación automatizada de la base; 16 pruebas |
+| [v0.3.0](../../tree/v0.3.0) | Sprint 2 · semana 6 | Tareo diario con cálculo de horas y sobretiempo e interfaz web (React, Vite, Tailwind CSS); 23 pruebas |
+| [v0.4.0](../../tree/v0.4.0) | Sprint 2 · semana 7 | Resumen y cierre de la asistencia semanal, rediseño visual y regla del almuerzo («de corrido»); 29 pruebas |
+| [v0.5.0](../../tree/v0.5.0) | Sprint 3 · semana 8 | Motor de cálculo de la planilla semanal, validado contra 11 boletas reales; 33 pruebas |
 
 ## Estructura
 
