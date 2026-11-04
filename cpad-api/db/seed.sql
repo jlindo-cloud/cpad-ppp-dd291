@@ -37,3 +37,9 @@ UPDATE pago_categoria g SET tarifa_hora_extra = v.tarifa
 INSERT INTO jornal_categoria (categoria_id, vigente_desde, jornal, pct_buc, valor_hora_extra)
 SELECT c.id, DATE '2026-01-01', 61.30, 30, 14.00 FROM categoria c WHERE c.nombre = 'AYUDANTE'
 ON CONFLICT DO NOTHING;
+
+-- Semana 9: el capataz no figura en la tabla del convenio; su boleta se desglosa con el jornal del operario
+-- y el pago real (S/ 1 200 semanales) se cuadra con el dominical o con adelantos
+INSERT INTO jornal_categoria (categoria_id, vigente_desde, jornal, pct_buc, valor_hora_extra)
+SELECT c.id, DATE '2026-01-01', 86.80, 32, 21.18 FROM categoria c WHERE c.nombre = 'CAPATAZ'
+ON CONFLICT DO NOTHING;

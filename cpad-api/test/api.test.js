@@ -446,17 +446,24 @@ test('CP36 planilla: valida los ajustes y avisa cuando el adelanto supera el pag
   assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, horas_extras: 0, adelanto: 0 })).status, 200);
 });
 
-test('CP37 planilla: sin jornal de tabla (capataz) no se calcula, y lo indica', async () => {
+test('CP37 planilla: el capataz se desglosa con el jornal del operario y una categoría sin tabla no se calcula', async () => {
   const c = (await request(app).get('/api/trabajadores/dni/50000003')).body;
-  const cap = (await request(app).get('/api/categorias')).body.find((x) => x.nombre === 'CAPATAZ').id;
-  await request(app).put(`/api/trabajadores/${c.id}`).send({ dni: c.dni, apellidos: c.apellidos, nombres: c.nombres, categoria_id: c.categoria_id,
-    especialidad_id: c.especialidad_id, obra_id: c.obra_id, fecha_ingreso: c.fecha_ingreso, categoria_pago_id: cap });
+  const cats = (await request(app).get('/api/categorias')).body;
+  const put = (cat) => request(app).put(`/api/trabajadores/${c.id}`).send({ dni: c.dni, apellidos: c.apellidos, nombres: c.nombres, categoria_id: c.categoria_id,
+    especialidad_id: c.especialidad_id, obra_id: c.obra_id, fecha_ingreso: c.fecha_ingreso, categoria_pago_id: cat });
+  await put(cats.find((x) => x.nombre === 'CAPATAZ').id);
   const r = await request(app).put('/api/planillas/ajustes').send({ obra_id: S.obra, fecha: '2026-09-28', trabajador_id: c.id, horas_extras: 1 });
   assert.equal(r.status, 200);
-  const e = r.body.errores.find((x) => x.trabajador_id === c.id).errores.join(' ');
+  const k = r.body.boletas.find((x) => x.trabajador_id === c.id);
+  const esperado = calcularDeposito({ sueldo_semanal: 1200, dias: k.dias, horas_extras: 1, tarifa_hora_extra: 20 }).deposito;
+  assert.deepEqual([k.categoria_pago, k.jornal, k.deposito, k.neto], ['CAPATAZ', 86.8, esperado, esperado]);
+  const nueva = (await request(app).post('/api/categorias').send({ nombre: 'Maestro de obra' })).body;
+  await put(nueva.id);
+  const g = await request(app).get(`/api/planillas/semana?obra_id=${S.obra}&fecha=2026-09-28`);
+  const e = g.body.errores.find((x) => x.trabajador_id === c.id).errores.join(' ');
   assert.match(e, /jornal de tabla vigente/);
-  assert.doesNotMatch(e, /tarifa de la hora extra/); // el capataz ya tiene tarifa (S/ 20,00)
-  assert.ok(r.body.boletas.some((x) => x.trabajador_id === S.a)); // los demás sí se calculan
+  assert.match(e, /sueldo semanal vigente/);
+  assert.ok(g.body.boletas.some((x) => x.trabajador_id === S.a)); // los demás sí se calculan
 });
 
 test('CP38 planilla: el pago de la semana se redondea al sol hacia arriba', () => {
