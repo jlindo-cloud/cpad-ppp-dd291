@@ -3,6 +3,7 @@ import Tareo from './Tareo.jsx';
 import Semana from './Semana.jsx';
 import Trabajadores from './Trabajadores.jsx';
 import Obras from './Obras.jsx';
+import Planilla from './Planilla.jsx';
 import { Icono } from './ui.jsx';
 import { api } from './api.js';
 import { hoyLima } from './fechas.js';
@@ -11,6 +12,9 @@ const GRUPOS = [
   { nombre: 'Asistencia', secciones: [
     { id: 'tareo', nombre: 'Tareo diario', icono: 'tareo', Componente: Tareo },
     { id: 'semana', nombre: 'Resumen semanal', icono: 'semana', Componente: Semana },
+  ] },
+  { nombre: 'Planilla', secciones: [
+    { id: 'planilla', nombre: 'Planilla semanal', icono: 'planilla', Componente: Planilla },
   ] },
   { nombre: 'Maestros', secciones: [
     { id: 'trabajadores', nombre: 'Trabajadores', icono: 'trabajadores', Componente: Trabajadores },
@@ -70,7 +74,7 @@ export default function App() {
         </div>
         <div className="hidden border-t border-white/10 px-5 py-4 text-[12px] text-white/50 md:block">
           <div className="text-white/80">COEZ PERÚ E.I.R.L.</div>
-          <div className="mt-0.5">Versión beta 0.4</div>
+          <div className="mt-0.5">Versión beta 0.6</div>
         </div>
         </div>
       </nav>

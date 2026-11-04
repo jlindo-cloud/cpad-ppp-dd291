@@ -46,5 +46,12 @@ Las pruebas levantan un PostgreSQL embebido temporal, aplican el esquema y los d
 | DELETE | /api/asistencias/semana/cierre?obra_id=&fecha= | Reabre una semana cerrada para corregirla |
 | POST | /api/trabajadores/lote | Carga masiva del padrón (hasta 500 filas, todo o nada; acepta `categoria`, `especialidad` y `obra` por nombre) |
 | GET, PUT, DELETE | /api/trabajadores/:id | Consultar / editar / dar de baja |
+| GET | /api/planillas/parametros?fecha= | Parámetros, jornales de tabla y sueldos semanales vigentes |
+| GET | /api/planillas/semana?obra_id=&fecha= | Planilla de una semana cerrada: depósito y boleta por trabajador, y los que no se pudieron calcular |
+| PUT | /api/planillas/ajustes | Registra las horas extras pagadas y el adelanto de un trabajador en la semana |
+| POST | /api/planillas/calculo | Cálculo con horas extras, adelantos o depósitos indicados en la petición |
 
 Las bajas son lógicas (`activo = false`) para conservar el histórico de planillas.
+
+Depósito de la semana = sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol, menos el adelanto entregado.
+La boleta desglosa ese depósito según el régimen de construcción civil; el neto coincide con el depósito.

@@ -8,6 +8,7 @@ const EmbeddedPostgres = require('embedded-postgres').default;
 const { Pool } = require('pg');
 const request = require('supertest');
 const { createApp } = require('../src/app');
+const { calcularBoleta: cb, calcularDeposito } = require('../src/planilla');
 
 let pg, pool, app;
 const PORT = 54329;
@@ -385,7 +386,7 @@ test('CP32 planilla: exige jornal vigente para la categoría con la que se paga'
   const r = await request(app).post('/api/planillas/calculo').send({ obra_id: S.obra, fecha: '2026-09-28' });
   assert.equal(r.status, 400);
   assert.equal(r.body.errores.length, 1); // el ayudante aún no tiene jornal registrado
-  assert.match(r.body.errores[0].errores[0], /jornal vigente/);
+  assert.match(r.body.errores[0].errores[0], /jornal de tabla vigente/);
 });
 
 test('CP33 planilla: calcula la semana cerrada con horas extras, depósito y categoría de pago especial', async () => {
@@ -401,6 +402,57 @@ test('CP33 planilla: calcula la semana cerrada con horas extras, depósito y cat
   assert.deepEqual([a.dias, a.horas_normales, a.horas_extras, a.neto, a.cuadre], [6, 48, 42.36, 1000, 'dominical']);
   assert.equal(Math.round((a.total_remuneracion - a.snp) * 100), 100000);
   const k = r.body.boletas.find((x) => x.trabajador_id === c.id);
-  assert.deepEqual([k.categoria_tareo, k.categoria_pago, k.jornal, k.cuadre], ['AYUDANTE', 'OPERARIO', 86.8, 'sin_deposito']);
+  assert.deepEqual([k.categoria_tareo, k.categoria_pago, k.jornal, k.sueldo_semanal], ['AYUDANTE', 'OPERARIO', 86.8, 950]);
   assert.equal(r.body.totales.trabajadores, 3);
+});
+
+
+test('CP34 planilla: la regla de pago reproduce los 11 depósitos de la semana 30 y sus boletas', async () => {
+  const pr = (await request(app).get('/api/planillas/parametros?fecha=2026-09-28')).body;
+  const G = Object.fromEntries(pr.pagos.map((g) => [g.categoria, g]));
+  const J = Object.fromEntries(pr.jornales.map((j) => [j.categoria, j]));
+  const adelantos = { 2: 206 }; // la boleta B02 tuvo un adelanto entregado durante la semana
+  for (const b of B30.boletas) {
+    const g = G[b.categoria_pago]; const j = J[b.categoria_pago];
+    const d = calcularDeposito({ sueldo_semanal: g.sueldo_semanal, dias: b.dias, horas_extras: b.horas_extras, tarifa_hora_extra: g.tarifa_hora_extra, adelanto: adelantos[b.boleta] || 0 });
+    assert.equal(d.deposito, b.depositado, `boleta ${b.boleta}: depósito`);
+    const r = cb({ jornal: j.jornal, pct_buc: j.pct_buc, valor_hora_extra: j.valor_hora_extra, dias: b.dias, horas_extras: b.horas_extras, depositado: d.deposito }, pr.parametros);
+    assert.equal(r.neto, b.esperado.neto, `boleta ${b.boleta}: neto`);
+    assert.equal(r.total_remuneracion, b.esperado.total_remuneracion, `boleta ${b.boleta}: total`);
+  }
+});
+
+test('CP35 planilla: registra horas extras y adelanto, y el depósito se calcula desde la asistencia', async () => {
+  const r = await request(app).put('/api/planillas/ajustes').send({ obra_id: S.obra, fecha: '2026-09-28', trabajador_id: S.a, horas_extras: 2, adelanto: 100, nota: 'Adelanto del miércoles' });
+  assert.equal(r.status, 200);
+  const g = await request(app).get(`/api/planillas/semana?obra_id=${S.obra}&fecha=2026-09-30`);
+  assert.equal(g.status, 200);
+  const a = g.body.boletas.find((x) => x.trabajador_id === S.a);
+  // operario, 6 días: 950 + 2 × 18 = 986; menos el adelanto de 100
+  assert.deepEqual([a.pago_semana, a.adelanto_entregado, a.deposito, a.neto, a.nota], [986, 100, 886, 886, 'Adelanto del miércoles']);
+  assert.equal(g.body.totales.deposito, g.body.boletas.reduce((s, x) => s + x.deposito, 0));
+});
+
+test('CP36 planilla: valida los ajustes y avisa cuando el adelanto supera el pago', async () => {
+  const base = { obra_id: S.obra, fecha: '2026-09-28', trabajador_id: S.a };
+  assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, horas_extras: 70 })).status, 400);
+  assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, adelanto: -5 })).status, 400);
+  assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, trabajador_id: 999999 })).status, 404);
+  const r = await request(app).put('/api/planillas/ajustes').send({ ...base, horas_extras: 0, adelanto: 2000 });
+  assert.equal(r.status, 200);
+  const e = r.body.errores.find((x) => x.trabajador_id === S.a);
+  assert.match(e.errores.join(' '), /adelanto iguala o supera/);
+  assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, horas_extras: 0, adelanto: 0 })).status, 200);
+});
+
+test('CP37 planilla: sin tarifa de hora extra o sin jornal de tabla no se calcula, y lo indica', async () => {
+  const c = (await request(app).get('/api/trabajadores/dni/50000003')).body;
+  await request(app).put(`/api/trabajadores/${c.id}`).send({ dni: c.dni, apellidos: c.apellidos, nombres: c.nombres, categoria_id: c.categoria_id,
+    especialidad_id: c.especialidad_id, obra_id: c.obra_id, fecha_ingreso: c.fecha_ingreso, categoria_pago_id: null });
+  const r = await request(app).put('/api/planillas/ajustes').send({ obra_id: S.obra, fecha: '2026-09-28', trabajador_id: c.id, horas_extras: 1 });
+  assert.equal(r.status, 200);
+  const e = r.body.errores.find((x) => x.trabajador_id === c.id).errores.join(' ');
+  assert.match(e, /jornal de tabla vigente/);
+  assert.match(e, /tarifa de la hora extra/);
+  assert.ok(r.body.boletas.some((x) => x.trabajador_id === S.a)); // los demás sí se calculan
 });

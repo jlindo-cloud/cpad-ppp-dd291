@@ -131,3 +131,25 @@ CREATE TABLE IF NOT EXISTS parametro_planilla (
 );
 -- Caso especial: un trabajador puede figurar en el tareo con una categoría y cobrar con otra
 ALTER TABLE trabajador ADD COLUMN IF NOT EXISTS categoria_pago_id INTEGER REFERENCES categoria(id);
+
+-- Sprint 3 · semana 9: lo que la empresa paga en la práctica
+-- Sueldo semanal acordado por categoría y tarifa de la hora extra (NULL mientras no se defina)
+CREATE TABLE IF NOT EXISTS pago_categoria (
+  categoria_id       INTEGER NOT NULL REFERENCES categoria(id),
+  vigente_desde      DATE NOT NULL,
+  sueldo_semanal     NUMERIC(8,2) NOT NULL CHECK (sueldo_semanal > 0),
+  tarifa_hora_extra  NUMERIC(8,2) CHECK (tarifa_hora_extra >= 0),
+  PRIMARY KEY (categoria_id, vigente_desde)
+);
+-- HU09 · Horas extras que define el administrador y adelantos entregados, por trabajador y semana
+CREATE TABLE IF NOT EXISTS ajuste_planilla (
+  obra_id         INTEGER NOT NULL REFERENCES obra(id),
+  semana_inicio   DATE NOT NULL,
+  trabajador_id   INTEGER NOT NULL REFERENCES trabajador(id),
+  horas_extras    NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (horas_extras >= 0 AND horas_extras <= 60),
+  adelanto        NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (adelanto >= 0),
+  nota            VARCHAR(120),
+  actualizado_en  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (obra_id, semana_inicio, trabajador_id),
+  CONSTRAINT ck_ajuste_lunes CHECK (EXTRACT(ISODOW FROM semana_inicio) = 1)
+);

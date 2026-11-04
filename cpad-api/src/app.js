@@ -145,7 +145,7 @@ function createApp(pool, { staticDir } = {}) {
 
   app.get('/api/salud', ah(async (_req, res) => {
     await pool.query('SELECT 1');
-    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.5.0-dev' });
+    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.6.0-dev' });
   }));
 
   app.use('/api/categorias', crud(pool, 'categoria', validarCatalogo, { order: 'nombre' }));
