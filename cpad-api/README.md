@@ -53,5 +53,5 @@ Las pruebas levantan un PostgreSQL embebido temporal, aplican el esquema y los d
 
 Las bajas son lógicas (`activo = false`) para conservar el histórico de planillas.
 
-Depósito de la semana = sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol, menos el adelanto entregado.
+Depósito de la semana = sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol hacia arriba, menos el adelanto entregado.
 La boleta desglosa ese depósito según el régimen de construcción civil; el neto coincide con el depósito.

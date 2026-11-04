@@ -169,7 +169,7 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
             </table>
           </div>
           <p className="border-t border-linea px-4 py-2 text-[12px] text-tinta-2">
-            Pago de la semana = sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol. El depósito descuenta el adelanto entregado.
+            Pago de la semana = sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol hacia arriba. El depósito descuenta el adelanto entregado.
             La boleta desglosa ese depósito según el régimen de construcción civil. Pulse la flecha de una fila para ver la boleta.
           </p>
         </div>

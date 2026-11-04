@@ -17,7 +17,7 @@ Scrum con un Sprint 0 de análisis (semanas 1 a 3) y sprints de dos semanas. Cad
 | [v0.3.0](../../tree/v0.3.0) | Sprint 2 · semana 6 | Tareo diario con cálculo de horas y sobretiempo e interfaz web (React, Vite, Tailwind CSS); 23 pruebas |
 | [v0.4.0](../../tree/v0.4.0) | Sprint 2 · semana 7 | Resumen y cierre de la asistencia semanal, rediseño visual y regla del almuerzo («de corrido»); 29 pruebas |
 | [v0.5.0](../../tree/v0.5.0) | Sprint 3 · semana 8 | Motor de cálculo de la planilla semanal, validado contra 11 boletas reales; 33 pruebas |
-| [v0.6.0](../../tree/v0.6.0) | Sprint 3 · semana 9 | Depósito calculado desde la asistencia (sueldo semanal y horas extras), adelantos y pantalla de planilla; 37 pruebas |
+| [v0.6.0](../../tree/v0.6.0) | Sprint 3 · semana 9 | Depósito calculado desde la asistencia (sueldo semanal y horas extras), adelantos y pantalla de planilla; 38 pruebas |
 
 ## Estructura
 

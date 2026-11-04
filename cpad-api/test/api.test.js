@@ -445,7 +445,7 @@ test('CP36 planilla: valida los ajustes y avisa cuando el adelanto supera el pag
   assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, horas_extras: 0, adelanto: 0 })).status, 200);
 });
 
-test('CP37 planilla: sin tarifa de hora extra o sin jornal de tabla no se calcula, y lo indica', async () => {
+test('CP37 planilla: sin jornal de tabla no se calcula, y lo indica', async () => {
   const c = (await request(app).get('/api/trabajadores/dni/50000003')).body;
   await request(app).put(`/api/trabajadores/${c.id}`).send({ dni: c.dni, apellidos: c.apellidos, nombres: c.nombres, categoria_id: c.categoria_id,
     especialidad_id: c.especialidad_id, obra_id: c.obra_id, fecha_ingreso: c.fecha_ingreso, categoria_pago_id: null });
@@ -453,6 +453,12 @@ test('CP37 planilla: sin tarifa de hora extra o sin jornal de tabla no se calcul
   assert.equal(r.status, 200);
   const e = r.body.errores.find((x) => x.trabajador_id === c.id).errores.join(' ');
   assert.match(e, /jornal de tabla vigente/);
-  assert.match(e, /tarifa de la hora extra/);
+  assert.doesNotMatch(e, /tarifa de la hora extra/); // el peón ya tiene tarifa (S/ 14,00)
   assert.ok(r.body.boletas.some((x) => x.trabajador_id === S.a)); // los demás sí se calculan
+});
+
+test('CP38 planilla: el pago de la semana se redondea al sol hacia arriba', () => {
+  assert.equal(calcularDeposito({ sueldo_semanal: 800, dias: 4 }).deposito, 534);        // 533,33 → 534
+  assert.equal(calcularDeposito({ sueldo_semanal: 600, dias: 5, horas_extras: 2, tarifa_hora_extra: 14 }).deposito, 528); // 500 + 28
+  assert.equal(calcularDeposito({ sueldo_semanal: 1200, dias: 6, horas_extras: 1.5, tarifa_hora_extra: 20, adelanto: 100 }).deposito, 1130);
 });

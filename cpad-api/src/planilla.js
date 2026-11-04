@@ -17,12 +17,12 @@ const pct = (baseCent, p) => Math.round((baseCent * Number(p)) / 100);
  */
 /**
  * Depósito de la semana según lo que la empresa paga en la práctica:
- * sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol, menos el adelanto entregado.
+ * sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol hacia arriba, menos el adelanto entregado.
  * Reproduce los 11 depósitos de la semana 30 de 2026.
  */
 function calcularDeposito({ sueldo_semanal, dias, horas_extras = 0, tarifa_hora_extra = 0, adelanto = 0 }) {
   const bruto = Math.round((c(sueldo_semanal) * Number(dias)) / 6 + Number(horas_extras) * c(tarifa_hora_extra || 0));
-  const pago = Math.round(bruto / 100) * 100;             // al sol más cercano
+  const pago = Math.ceil(bruto / 100) * 100;              // al sol, siempre hacia arriba
   const ade = c(adelanto || 0);
   return { pago_semana: s(pago), adelanto_entregado: s(ade), deposito: s(pago - ade) };
 }
