@@ -10,7 +10,9 @@ VALUES ('IE0159', 'Paquete 02 - I.E. N.° 0159 Glorioso 10 de Octubre',
         'Jr. Peñón Mza. B12 Lote 01, A.H. 10 de Octubre', 'San Juan de Lurigancho')
   ON CONFLICT (codigo) DO NOTHING;
 
--- Jornales y parámetros de cálculo vigentes, tomados de las boletas pagadas por COEZ (semana 30 de 2026)
+-- Jornales y parámetros de cálculo, tomados de las boletas pagadas por COEZ (semana 30 de 2026).
+-- Corresponden a la tabla de la convención colectiva 2024-2025 (operario 86,80 · oficial 68,10 · peón 61,30;
+-- BUC 32 % operario y 30 % oficial y peón), que la empresa decidió mantener.
 INSERT INTO jornal_categoria (categoria_id, vigente_desde, jornal, pct_buc, valor_hora_extra)
 SELECT c.id, DATE '2026-01-01', v.jornal, v.buc, v.he
   FROM (VALUES ('OPERARIO', 86.80, 32, 21.18), ('OFICIAL', 68.10, 30, 16.60)) AS v(cat, jornal, buc, he)
@@ -30,3 +32,8 @@ ON CONFLICT DO NOTHING;
 UPDATE pago_categoria g SET tarifa_hora_extra = v.tarifa
   FROM (VALUES ('CAPATAZ', 20.00), ('AYUDANTE', 14.00)) AS v(cat, tarifa), categoria c
  WHERE c.nombre = v.cat AND g.categoria_id = c.id AND g.vigente_desde = DATE '2026-01-01' AND g.tarifa_hora_extra IS NULL;
+
+-- Semana 9: peón (categoría AYUDANTE) con el jornal de la misma tabla y su hora extra de S/ 14,00
+INSERT INTO jornal_categoria (categoria_id, vigente_desde, jornal, pct_buc, valor_hora_extra)
+SELECT c.id, DATE '2026-01-01', 61.30, 30, 14.00 FROM categoria c WHERE c.nombre = 'AYUDANTE'
+ON CONFLICT DO NOTHING;

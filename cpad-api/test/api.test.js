@@ -381,12 +381,13 @@ test('CP31 planilla: solo se calcula sobre una semana cerrada', async () => {
   assert.equal(r.status, 409);
 });
 
-test('CP32 planilla: exige jornal vigente para la categoría con la que se paga', async () => {
+test('CP32 planilla: calcula al peón (ayudante) con el jornal de su tabla', async () => {
   assert.equal((await request(app).post('/api/asistencias/semana/cierre').send({ obra_id: S.obra, fecha: '2026-09-28' })).status, 201);
   const r = await request(app).post('/api/planillas/calculo').send({ obra_id: S.obra, fecha: '2026-09-28' });
-  assert.equal(r.status, 400);
-  assert.equal(r.body.errores.length, 1); // el ayudante aún no tiene jornal registrado
-  assert.match(r.body.errores[0].errores[0], /jornal de tabla vigente/);
+  assert.equal(r.status, 200);
+  const c = (await request(app).get('/api/trabajadores/dni/50000003')).body;
+  const k = r.body.boletas.find((x) => x.trabajador_id === c.id);
+  assert.deepEqual([k.categoria_pago, k.jornal, k.sueldo_semanal, k.tarifa_hora_extra], ['AYUDANTE', 61.3, 600, 14]);
 });
 
 test('CP33 planilla: calcula la semana cerrada con horas extras, depósito y categoría de pago especial', async () => {
@@ -445,15 +446,16 @@ test('CP36 planilla: valida los ajustes y avisa cuando el adelanto supera el pag
   assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, horas_extras: 0, adelanto: 0 })).status, 200);
 });
 
-test('CP37 planilla: sin jornal de tabla no se calcula, y lo indica', async () => {
+test('CP37 planilla: sin jornal de tabla (capataz) no se calcula, y lo indica', async () => {
   const c = (await request(app).get('/api/trabajadores/dni/50000003')).body;
+  const cap = (await request(app).get('/api/categorias')).body.find((x) => x.nombre === 'CAPATAZ').id;
   await request(app).put(`/api/trabajadores/${c.id}`).send({ dni: c.dni, apellidos: c.apellidos, nombres: c.nombres, categoria_id: c.categoria_id,
-    especialidad_id: c.especialidad_id, obra_id: c.obra_id, fecha_ingreso: c.fecha_ingreso, categoria_pago_id: null });
+    especialidad_id: c.especialidad_id, obra_id: c.obra_id, fecha_ingreso: c.fecha_ingreso, categoria_pago_id: cap });
   const r = await request(app).put('/api/planillas/ajustes').send({ obra_id: S.obra, fecha: '2026-09-28', trabajador_id: c.id, horas_extras: 1 });
   assert.equal(r.status, 200);
   const e = r.body.errores.find((x) => x.trabajador_id === c.id).errores.join(' ');
   assert.match(e, /jornal de tabla vigente/);
-  assert.doesNotMatch(e, /tarifa de la hora extra/); // el peón ya tiene tarifa (S/ 14,00)
+  assert.doesNotMatch(e, /tarifa de la hora extra/); // el capataz ya tiene tarifa (S/ 20,00)
   assert.ok(r.body.boletas.some((x) => x.trabajador_id === S.a)); // los demás sí se calculan
 });
 
