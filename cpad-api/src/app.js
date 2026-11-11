@@ -48,6 +48,12 @@ function validarObra(body) {
       else o[f] = body[f];
     }
   }
+  if (body.centro_costo !== undefined) o.centro_costo = text(body.centro_costo, 'centro_costo', 150, errors, false) || null;
+  if (body.semana_base !== undefined) {
+    const v = body.semana_base;
+    if (v && (!/^\d{4}-\d{2}-\d{2}$/.test(v) || new Date(v + 'T12:00:00Z').getUTCDay() !== 1)) errors.push('semana_base debe ser un lunes con el formato AAAA-MM-DD');
+    else o.semana_base = v || null;
+  }
   if (errors.length) throw new HttpError(400, 'Datos inválidos', errors);
   return o;
 }
@@ -81,6 +87,24 @@ function validarTrabajador(body) {
       errors.push('fecha_ingreso debe tener el formato AAAA-MM-DD');
     else t.fecha_ingreso = body.fecha_ingreso;
   } else t.fecha_ingreso = null;
+  // Datos de la boleta (opcionales): solo se actualizan si vienen en la petición
+  const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+  if (has('fecha_nacimiento')) {
+    const v = body.fecha_nacimiento;
+    if (v && (!/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(Date.parse(v)))) errors.push('fecha_nacimiento debe tener el formato AAAA-MM-DD');
+    else t.fecha_nacimiento = v || null;
+  }
+  for (const [k, max] of [['banco', 40], ['cuenta_bancaria', 30], ['cuspp', 20]]) {
+    if (!has(k)) continue;
+    const v = body[k] == null ? '' : String(body[k]).trim();
+    if (v.length > max) errors.push(`${k} admite como máximo ${max} caracteres`);
+    else t[k] = v ? v.toUpperCase() : null;
+  }
+  if (has('afiliacion')) {
+    const v = String(body.afiliacion || 'ONP').trim().toUpperCase();
+    if (!/^(ONP|AFP [A-Z ]{2,15})$/.test(v)) errors.push('afiliacion debe ser ONP o el nombre de la AFP');
+    else t.afiliacion = v;
+  }
   if (t.apellidos) t.apellidos = t.apellidos.toUpperCase();
   if (t.nombres) t.nombres = t.nombres.toUpperCase();
   if (errors.length) throw new HttpError(400, 'Datos inválidos', errors);
@@ -145,7 +169,7 @@ function createApp(pool, { staticDir } = {}) {
 
   app.get('/api/salud', ah(async (_req, res) => {
     await pool.query('SELECT 1');
-    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.6.0-dev' });
+    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.7.0-dev' });
   }));
 
   app.use('/api/categorias', crud(pool, 'categoria', validarCatalogo, { order: 'nombre' }));

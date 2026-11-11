@@ -43,3 +43,10 @@ ON CONFLICT DO NOTHING;
 INSERT INTO jornal_categoria (categoria_id, vigente_desde, jornal, pct_buc, valor_hora_extra)
 SELECT c.id, DATE '2026-01-01', 86.80, 32, 21.18 FROM categoria c WHERE c.nombre = 'CAPATAZ'
 ON CONFLICT DO NOTHING;
+
+-- Sprint 4: datos del empleador que imprime la boleta (tomados de las boletas emitidas por la empresa)
+INSERT INTO empresa (id, razon_social, ruc, direccion, representante, cargo_representante)
+VALUES (1, 'COEZ PERU EIRL', '20613182889', 'OTR.LA PLANICIE MZA. CU6 LOTE. 5A A.H. JICAMARCA ANEXO 22 LIMA - LIMA - SAN JUAN DE LURIGANCHO',
+        'ESLIN SAFRA PICON', 'GERENTE GENERAL')
+ON CONFLICT (id) DO NOTHING;
+UPDATE obra SET centro_costo = 'IE 0159 GLORIOSO 10 DE OCTUBRE' WHERE codigo = 'IE0159' AND centro_costo IS NULL;

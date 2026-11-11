@@ -7,7 +7,7 @@ import { fechaHora, hoyLima, lunesDe, rango, sumar } from './fechas.js';
 const sol = (n) => (n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 /** Desglose de la boleta de un trabajador: ingresos, descuentos y aportes del empleador. */
-function Desglose({ b, pctSnp }) {
+function Desglose({ b, pctSnp, pdf }) {
   const bloque = (titulo, filas, total) => (
     <div className="min-w-56 flex-1">
       <div className="mb-1.5 text-[12px] font-medium text-tinta-2">{titulo}</div>
@@ -32,6 +32,7 @@ function Desglose({ b, pctSnp }) {
         <p className="num mt-1">Pago de la semana {sol(b.pago_semana)}{b.adelanto_entregado ? ` − adelanto ${sol(b.adelanto_entregado)}` : ''} = <strong>{sol(b.deposito)}</strong></p>
         <p className="mt-1 text-tinta-2">Jornal de tabla {sol(b.jornal)} ({b.categoria_pago.toLowerCase()}). El neto de la boleta coincide con el depósito{b.cuadre === 'adelantos' ? '; el exceso se registra como adelanto en la boleta' : ''}.</p>
         {b.nota && <p className="mt-1 text-tinta-2">Nota: {b.nota}</p>}
+        <a href={pdf} target="_blank" rel="noreferrer" className="btn-secundario mt-3 inline-flex"><Icono n="planilla" />Boleta en PDF</a>
       </div>
     </div>
   );
@@ -73,6 +74,7 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
   }
 
   const t = p?.totales;
+  const urlPdf = `/api/planillas/boletas.pdf?obra_id=${obraId}&fecha=${inicio}`;
   return (
     <section>
       <Encabezado titulo="Planilla semanal" detalle="Calcula la planilla a partir de la asistencia cerrada: horas extras, adelantos, depósito y boleta de cada trabajador.">
@@ -150,7 +152,7 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
                         </button>
                       </td>
                     </tr>
-                    {abierto === b.trabajador_id && <tr><td colSpan="11" className="p-0"><Desglose b={b} pctSnp={p.parametros.pct_snp} /></td></tr>}
+                    {abierto === b.trabajador_id && <tr><td colSpan="11" className="p-0"><Desglose b={b} pctSnp={p.parametros.pct_snp} pdf={`${urlPdf}&trabajador_id=${b.trabajador_id}`} /></td></tr>}
                   </Fragment>
                 ))}
                 {!p.boletas.length && <tr><td colSpan="11" className="py-10 text-center text-tinta-2">No hay trabajadores con días laborados en esta semana.</td></tr>}
@@ -167,6 +169,10 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
                 </tfoot>
               )}
             </table>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 border-t border-linea-2 bg-fondo/60 px-4 py-3 text-[13px]">
+            <span className="text-tinta-2">Boletas con el formato de la empresa, una por página (A4 horizontal).</span>
+            <a href={urlPdf} target="_blank" rel="noreferrer" className={`btn-primario ml-auto ${p.boletas.length ? '' : 'pointer-events-none opacity-50'}`}><Icono n="planilla" />Boletas de la semana (PDF)</a>
           </div>
           <p className="border-t border-linea px-4 py-2 text-[12px] text-tinta-2">
             Pago de la semana = sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol hacia arriba. El depósito descuenta el adelanto entregado.

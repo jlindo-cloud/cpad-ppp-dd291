@@ -412,10 +412,10 @@ test('CP34 planilla: la regla de pago reproduce los 11 depósitos de la semana 3
   const pr = (await request(app).get('/api/planillas/parametros?fecha=2026-09-28')).body;
   const G = Object.fromEntries(pr.pagos.map((g) => [g.categoria, g]));
   const J = Object.fromEntries(pr.jornales.map((j) => [j.categoria, j]));
-  const adelantos = { 2: 206 }; // la boleta B02 tuvo un adelanto entregado durante la semana
   for (const b of B30.boletas) {
-    const g = G[b.categoria_pago]; const j = J[b.categoria_pago];
-    const d = calcularDeposito({ sueldo_semanal: g.sueldo_semanal, dias: b.dias, horas_extras: b.horas_extras, tarifa_hora_extra: g.tarifa_hora_extra, adelanto: adelantos[b.boleta] || 0 });
+    // la B02 es de un peón: se paga como peón, aunque su boleta real se desglosó con el jornal del oficial
+    const g = G[b.categoria_sueldo || b.categoria_pago]; const j = J[b.categoria_pago];
+    const d = calcularDeposito({ sueldo_semanal: g.sueldo_semanal, dias: b.dias, horas_extras: b.horas_extras, tarifa_hora_extra: g.tarifa_hora_extra });
     assert.equal(d.deposito, b.depositado, `boleta ${b.boleta}: depósito`);
     const r = cb({ jornal: j.jornal, pct_buc: j.pct_buc, valor_hora_extra: j.valor_hora_extra, dias: b.dias, horas_extras: b.horas_extras, depositado: d.deposito }, pr.parametros);
     assert.equal(r.neto, b.esperado.neto, `boleta ${b.boleta}: neto`);
@@ -470,4 +470,43 @@ test('CP38 planilla: el pago de la semana se redondea al sol hacia arriba', () =
   assert.equal(calcularDeposito({ sueldo_semanal: 800, dias: 4 }).deposito, 534);        // 533,33 → 534
   assert.equal(calcularDeposito({ sueldo_semanal: 600, dias: 5, horas_extras: 2, tarifa_hora_extra: 14 }).deposito, 528); // 500 + 28
   assert.equal(calcularDeposito({ sueldo_semanal: 1200, dias: 6, horas_extras: 1.5, tarifa_hora_extra: 20, adelanto: 100 }).deposito, 1130);
+});
+
+const pdf = (r) => r.buffer(true).parse((res, cb) => { const c = []; res.on('data', (d) => c.push(d)); res.on('end', () => cb(null, Buffer.concat(c))); });
+const paginas = (buf) => (buf.toString('latin1').match(/\/Type \/Page\b/g) || []).length;
+
+test('CP39 boletas: emite el PDF de la semana con una boleta por página', async () => {
+  const g = (await request(app).get(`/api/planillas/semana?obra_id=${S.obra}&fecha=2026-09-28`)).body;
+  const r = await pdf(request(app).get(`/api/planillas/boletas.pdf?obra_id=${S.obra}&fecha=2026-09-28`));
+  assert.equal(r.status, 200);
+  assert.match(r.headers['content-type'], /application\/pdf/);
+  assert.equal(r.body.subarray(0, 5).toString(), '%PDF-');
+  assert.equal(paginas(r.body), g.boletas.length);
+});
+
+test('CP40 boletas: emite la boleta de un trabajador y rechaza los casos sin boleta', async () => {
+  const r = await pdf(request(app).get(`/api/planillas/boletas.pdf?obra_id=${S.obra}&fecha=2026-09-28&trabajador_id=${S.a}`));
+  assert.equal(r.status, 200);
+  assert.equal(paginas(r.body), 1);
+  assert.match(r.headers['content-disposition'], /boleta_2026-09-28_\d{8}\.pdf/);
+  assert.equal((await request(app).get(`/api/planillas/boletas.pdf?obra_id=${S.obra}&fecha=2026-09-28&trabajador_id=999999`)).status, 404);
+  assert.equal((await request(app).get(`/api/planillas/boletas.pdf?obra_id=${S.obra}&fecha=2026-10-05`)).status, 409); // semana abierta
+});
+
+test('CP41 boletas: datos del trabajador y de la obra que imprime la boleta', async () => {
+  const a = (await request(app).get(`/api/trabajadores/${S.a}`)).body;
+  const base = { dni: a.dni, apellidos: a.apellidos, nombres: a.nombres, categoria_id: a.categoria_id, especialidad_id: a.especialidad_id, obra_id: a.obra_id, fecha_ingreso: a.fecha_ingreso?.slice(0, 10) };
+  let r = await request(app).put(`/api/trabajadores/${S.a}`).send({ ...base, fecha_nacimiento: '1990-05-20', banco: 'bcp', cuenta_bancaria: '191-0000000-0-00' });
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.body.banco, r.body.cuenta_bancaria, r.body.afiliacion], ['BCP', '191-0000000-0-00', 'ONP']);
+  r = await request(app).put(`/api/trabajadores/${S.a}`).send(base); // sin esos campos: se conservan
+  assert.equal(r.body.banco, 'BCP');
+  assert.equal((await request(app).put(`/api/trabajadores/${S.a}`).send({ ...base, fecha_nacimiento: '20/05/1990' })).status, 400);
+  const o = (await request(app).get(`/api/obras/${S.obra}`)).body;
+  const ob = { codigo: o.codigo, nombre: o.nombre };
+  assert.equal((await request(app).put(`/api/obras/${S.obra}`).send({ ...ob, semana_base: '2026-03-10' })).status, 400); // no es lunes
+  r = await request(app).put(`/api/obras/${S.obra}`).send({ ...ob, semana_base: '2026-03-09', centro_costo: 'Obra de prueba' });
+  assert.equal(r.status, 200);
+  const p = await pdf(request(app).get(`/api/planillas/boletas.pdf?obra_id=${S.obra}&fecha=2026-09-28&trabajador_id=${S.a}`));
+  assert.equal(p.status, 200);
 });

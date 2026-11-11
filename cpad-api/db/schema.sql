@@ -153,3 +153,21 @@ CREATE TABLE IF NOT EXISTS ajuste_planilla (
   PRIMARY KEY (obra_id, semana_inicio, trabajador_id),
   CONSTRAINT ck_ajuste_lunes CHECK (EXTRACT(ISODOW FROM semana_inicio) = 1)
 );
+
+-- Sprint 4 · HU10: datos que imprime la boleta de pago
+CREATE TABLE IF NOT EXISTS empresa (
+  id                   INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  razon_social         VARCHAR(150) NOT NULL,
+  ruc                  CHAR(11) NOT NULL,
+  direccion            VARCHAR(250),
+  representante        VARCHAR(150),
+  cargo_representante  VARCHAR(80)
+);
+ALTER TABLE trabajador ADD COLUMN IF NOT EXISTS fecha_nacimiento DATE;
+ALTER TABLE trabajador ADD COLUMN IF NOT EXISTS banco VARCHAR(40);
+ALTER TABLE trabajador ADD COLUMN IF NOT EXISTS cuenta_bancaria VARCHAR(30);
+ALTER TABLE trabajador ADD COLUMN IF NOT EXISTS afiliacion VARCHAR(20) NOT NULL DEFAULT 'ONP';
+ALTER TABLE trabajador ADD COLUMN IF NOT EXISTS cuspp VARCHAR(20);
+-- Centro de costo tal como se imprime en la boleta y lunes de la semana 1 (numeración de semanas de la obra)
+ALTER TABLE obra ADD COLUMN IF NOT EXISTS centro_costo VARCHAR(150);
+ALTER TABLE obra ADD COLUMN IF NOT EXISTS semana_base DATE;

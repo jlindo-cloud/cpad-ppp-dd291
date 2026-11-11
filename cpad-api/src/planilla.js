@@ -3,6 +3,7 @@
 // Todo se calcula en céntimos enteros con redondeo al céntimo más cercano (mitad hacia arriba),
 // para que el resultado coincida exactamente con las boletas emitidas.
 const express = require('express');
+const { generarBoletas } = require('./boleta-pdf');
 
 const c = (soles) => Math.round(Number(soles) * 100);          // soles -> céntimos
 const s = (cent) => Math.round(cent) / 100;                    // céntimos -> soles
@@ -177,6 +178,36 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
       ON CONFLICT (obra_id, semana_inicio, trabajador_id) DO UPDATE SET horas_extras = EXCLUDED.horas_extras,
         adelanto = EXCLUDED.adelanto, nota = EXCLUDED.nota, actualizado_en = now()`, [sem.obra.id, sem.semana.inicio, tid, h, ad, nota]);
     res.json(await calcularSemana(sem));
+  }));
+  // HU10: boletas en PDF (A4 horizontal), de toda la semana o de un trabajador
+  r.get('/boletas.pdf', ah(async (req, res) => {
+    const sem = await semanaCerrada(Number(req.query.obra_id), req.query.fecha);
+    const out = await calcularSemana(sem);
+    let boletas = out.boletas;
+    if (req.query.trabajador_id) {
+      const tid = Number(req.query.trabajador_id);
+      boletas = boletas.filter((b) => b.trabajador_id === tid);
+      if (!boletas.length) {
+        const e = out.errores.find((x) => x.trabajador_id === tid);
+        throw new HttpError(e ? 409 : 404, e ? `No se puede emitir la boleta: ${e.errores.join('; ')}` : 'El trabajador no tiene boleta en esa semana');
+      }
+    }
+    if (!boletas.length) throw new HttpError(409, 'No hay boletas que emitir en esa semana');
+    const { rows: [empresa] } = await pool.query('SELECT * FROM empresa WHERE id = 1');
+    if (!empresa) throw new HttpError(409, 'Faltan los datos del empleador');
+    const { rows: extra } = await pool.query(`SELECT t.id, t.fecha_ingreso, t.fecha_nacimiento, t.banco, t.cuenta_bancaria, t.afiliacion, t.cuspp, e.nombre AS especialidad
+      FROM trabajador t JOIN especialidad e ON e.id = t.especialidad_id WHERE t.id = ANY($1)`, [boletas.map((b) => b.trabajador_id)]);
+    const ex = new Map(extra.map((x) => [x.id, x]));
+    const dia = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : d);
+    boletas = boletas.map((b) => { const x = ex.get(b.trabajador_id) || {}; return { ...b, ...x, fecha_ingreso: dia(x.fecha_ingreso), fecha_nacimiento: dia(x.fecha_nacimiento) }; });
+    const inicio = sem.semana.inicio;
+    const sabado = new Date(Date.parse(inicio + 'T12:00:00Z') + 5 * 864e5).toISOString().slice(0, 10);
+    const base = sem.obra.semana_base ? dia(sem.obra.semana_base) : null;
+    const numero = base ? Math.floor((Date.parse(inicio) - Date.parse(base)) / (7 * 864e5)) + 1 : null;
+    res.setHeader('Content-Type', 'application/pdf');
+    const nombre = boletas.length === 1 ? `boleta_${inicio}_${boletas[0].dni}.pdf` : `boletas_${sem.obra.codigo}_${inicio}.pdf`;
+    res.setHeader('Content-Disposition', `${req.query.descargar ? 'attachment' : 'inline'}; filename="${nombre}"`);
+    generarBoletas(res, boletas, { empresa, obra: sem.obra, semana: { inicio, sabado }, numero: numero > 0 ? numero : null });
   }));
   return r;
 };

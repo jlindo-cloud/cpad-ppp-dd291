@@ -105,7 +105,7 @@ module.exports = function asistenciaRouter(pool, { HttpError, ah }) {
     });
     const tot = (k) => r2(filas.reduce((s, f) => s + f[k], 0));
     return {
-      obra: { id: obra.id, codigo: obra.codigo, nombre: obra.nombre },
+      obra: { id: obra.id, codigo: obra.codigo, nombre: obra.nombre, centro_costo: obra.centro_costo || null, semana_base: obra.semana_base || null },
       semana: { inicio, fin, dias },
       cierre: await cierre(obra.id, inicio),
       resumen: { trabajadores: filas.length, dias_asistidos: tot('dias_asistidos'), faltas: tot('faltas'),

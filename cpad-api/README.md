@@ -49,6 +49,7 @@ Las pruebas levantan un PostgreSQL embebido temporal, aplican el esquema y los d
 | GET | /api/planillas/parametros?fecha= | Parámetros, jornales de tabla y sueldos semanales vigentes |
 | GET | /api/planillas/semana?obra_id=&fecha= | Planilla de una semana cerrada: depósito y boleta por trabajador, y los que no se pudieron calcular |
 | PUT | /api/planillas/ajustes | Registra las horas extras pagadas y el adelanto de un trabajador en la semana |
+| GET | /api/planillas/boletas.pdf?obra_id=&fecha=[&trabajador_id=] | Boletas en PDF (A4 horizontal), de la semana o de un trabajador |
 | POST | /api/planillas/calculo | Cálculo con horas extras, adelantos o depósitos indicados en la petición |
 
 Las bajas son lógicas (`activo = false`) para conservar el histórico de planillas.
