@@ -510,5 +510,8 @@ test('CP41 boletas: datos del trabajador y de la obra que imprime la boleta', as
   r = await request(app).put(`/api/obras/${S.obra}`).send({ ...ob, semana_base: '2026-03-09', centro_costo: 'Obra de prueba' });
   assert.equal(r.status, 200);
   const p = await pdf(request(app).get(`/api/planillas/boletas.pdf?obra_id=${S.obra}&fecha=2026-09-28&trabajador_id=${S.a}`));
-  assert.equal(p.status, 200);
+  assert.equal(p.status, 200);  const { numeroSemana } = require('../src/planilla');
+  assert.equal(numeroSemana('2026-09-28', '2026-03-09'), 30); // semana 30 de las boletas de la empresa
+  assert.equal(numeroSemana('2026-03-02', '2026-03-09'), null);
+  assert.equal(numeroSemana('2026-09-28', null), null);
 });

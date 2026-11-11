@@ -50,3 +50,5 @@ VALUES (1, 'COEZ PERU EIRL', '20613182889', 'OTR.LA PLANICIE MZA. CU6 LOTE. 5A A
         'ESLIN SAFRA PICON', 'GERENTE GENERAL')
 ON CONFLICT (id) DO NOTHING;
 UPDATE obra SET centro_costo = 'IE 0159 GLORIOSO 10 DE OCTUBRE' WHERE codigo = 'IE0159' AND centro_costo IS NULL;
+-- Numeración de semanas de la obra: la semana del 28/09/2026 es la semana 30 (boletas de la empresa)
+UPDATE obra SET semana_base = '2026-03-09' WHERE codigo = 'IE0159' AND semana_base IS NULL;

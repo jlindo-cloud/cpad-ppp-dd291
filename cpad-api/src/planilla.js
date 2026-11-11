@@ -21,6 +21,13 @@ const pct = (baseCent, p) => Math.round((baseCent * Number(p)) / 100);
  * sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol hacia arriba, menos el adelanto entregado.
  * Reproduce los 11 depósitos de la semana 30 de 2026.
  */
+/** Número correlativo de la semana en la obra: la semana base es la 1. Sin base, o antes de ella, no hay número. */
+function numeroSemana(inicio, base) {
+  if (!base) return null;
+  const n = Math.round((Date.parse(inicio) - Date.parse(base)) / (7 * 864e5)) + 1;
+  return n > 0 ? n : null;
+}
+
 function calcularDeposito({ sueldo_semanal, dias, horas_extras = 0, tarifa_hora_extra = 0, adelanto = 0 }) {
   const bruto = Math.round((c(sueldo_semanal) * Number(dias)) / 6 + Number(horas_extras) * c(tarifa_hora_extra || 0));
   const pago = Math.ceil(bruto / 100) * 100;              // al sol, siempre hacia arriba
@@ -203,13 +210,14 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
     const inicio = sem.semana.inicio;
     const sabado = new Date(Date.parse(inicio + 'T12:00:00Z') + 5 * 864e5).toISOString().slice(0, 10);
     const base = sem.obra.semana_base ? dia(sem.obra.semana_base) : null;
-    const numero = base ? Math.floor((Date.parse(inicio) - Date.parse(base)) / (7 * 864e5)) + 1 : null;
+    const numero = numeroSemana(inicio, base);
     res.setHeader('Content-Type', 'application/pdf');
     const nombre = boletas.length === 1 ? `boleta_${inicio}_${boletas[0].dni}.pdf` : `boletas_${sem.obra.codigo}_${inicio}.pdf`;
     res.setHeader('Content-Disposition', `${req.query.descargar ? 'attachment' : 'inline'}; filename="${nombre}"`);
-    generarBoletas(res, boletas, { empresa, obra: sem.obra, semana: { inicio, sabado }, numero: numero > 0 ? numero : null });
+    generarBoletas(res, boletas, { empresa, obra: sem.obra, semana: { inicio, sabado }, numero });
   }));
   return r;
 };
 module.exports.calcularBoleta = calcularBoleta;
 module.exports.calcularDeposito = calcularDeposito;
+module.exports.numeroSemana = numeroSemana;
