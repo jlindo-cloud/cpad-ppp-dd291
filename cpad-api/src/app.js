@@ -169,7 +169,7 @@ function createApp(pool, { staticDir } = {}) {
 
   app.get('/api/salud', ah(async (_req, res) => {
     await pool.query('SELECT 1');
-    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.7.0-dev' });
+    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.7.0' });
   }));
 
   app.use('/api/categorias', crud(pool, 'categoria', validarCatalogo, { order: 'nombre' }));
@@ -211,8 +211,10 @@ function createApp(pool, { staticDir } = {}) {
     try {
       await cx.query('BEGIN');
       for (const t of validos) {
-        await cx.query('INSERT INTO trabajador (dni, apellidos, nombres, categoria_id, especialidad_id, obra_id, fecha_ingreso) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-          [t.dni, t.apellidos, t.nombres, t.categoria_id, t.especialidad_id, t.obra_id, t.fecha_ingreso]);
+        await cx.query(`INSERT INTO trabajador (dni, apellidos, nombres, categoria_id, especialidad_id, obra_id, fecha_ingreso,
+            fecha_nacimiento, banco, cuenta_bancaria, afiliacion, cuspp) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11,'ONP'),$12)`,
+          [t.dni, t.apellidos, t.nombres, t.categoria_id, t.especialidad_id, t.obra_id, t.fecha_ingreso,
+            t.fecha_nacimiento || null, t.banco || null, t.cuenta_bancaria || null, t.afiliacion || null, t.cuspp || null]);
       }
       await cx.query('COMMIT');
     } catch (e) { await cx.query('ROLLBACK'); throw e; } finally { cx.release(); }

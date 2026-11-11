@@ -137,13 +137,15 @@ test('CP12 errores: id inválido, recurso inexistente y JSON mal formado', async
 test('CP13 lote: carga varios trabajadores usando nombres de categoría, especialidad y obra', async () => {
   const r = await request(app).post('/api/trabajadores/lote').send({ trabajadores: [
     { dni: '20000001', apellidos: 'Uno Prueba', nombres: 'Ana', categoria: 'Operario', especialidad: 'Electricidad', obra: 'IE0159' },
-    { dni: '20000002', apellidos: 'Dos Prueba', nombres: 'Luis', categoria: 'CAPATAZ', especialidad: 'ELECTRICIDAD', obra: 'IE0159' },
+    { dni: '20000002', apellidos: 'Dos Prueba', nombres: 'Luis', categoria: 'CAPATAZ', especialidad: 'ELECTRICIDAD', obra: 'IE0159',
+      fecha_nacimiento: '1988-02-14', banco: 'bcp', cuenta_bancaria: '191-0000000-0-02' },
     { dni: '20000003', apellidos: 'Tres Prueba', nombres: 'Rosa', categoria: 'ayudante', especialidad: 'concreto' },
   ] });
   assert.equal(r.status, 201);
   assert.equal(r.body.insertados, 3);
   const g = await request(app).get('/api/trabajadores/dni/20000002');
   assert.equal(g.body.categoria, 'CAPATAZ');
+  assert.deepEqual([g.body.banco, g.body.cuenta_bancaria, g.body.afiliacion], ['BCP', '191-0000000-0-02', 'ONP']);
 });
 
 test('CP14 lote: si una fila falla no se registra ninguna y se informa la fila', async () => {

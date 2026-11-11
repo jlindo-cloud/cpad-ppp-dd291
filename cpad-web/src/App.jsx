@@ -74,7 +74,7 @@ export default function App() {
         </div>
         <div className="hidden border-t border-white/10 px-5 py-4 text-[12px] text-white/50 md:block">
           <div className="text-white/80">COEZ PERÚ E.I.R.L.</div>
-          <div className="mt-0.5">Versión beta 0.6</div>
+          <div className="mt-0.5">Versión beta 0.7</div>
         </div>
         </div>
       </nav>
