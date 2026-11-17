@@ -4,6 +4,8 @@ import Semana from './Semana.jsx';
 import Trabajadores from './Trabajadores.jsx';
 import Obras from './Obras.jsx';
 import Planilla from './Planilla.jsx';
+import Historial from './Historial.jsx';
+import Importar from './Importar.jsx';
 import { Icono } from './ui.jsx';
 import { api } from './api.js';
 import { hoyLima } from './fechas.js';
@@ -15,10 +17,12 @@ const GRUPOS = [
   ] },
   { nombre: 'Planilla', secciones: [
     { id: 'planilla', nombre: 'Planilla semanal', icono: 'planilla', Componente: Planilla },
+    { id: 'historial', nombre: 'Historial de boletas', icono: 'historial', Componente: Historial },
   ] },
   { nombre: 'Maestros', secciones: [
     { id: 'trabajadores', nombre: 'Trabajadores', icono: 'trabajadores', Componente: Trabajadores },
     { id: 'obras', nombre: 'Obras', icono: 'obras', Componente: Obras },
+    { id: 'importar', nombre: 'Importar desde Excel', icono: 'importar', Componente: Importar },
   ] },
 ];
 const SECCIONES = GRUPOS.flatMap((g) => g.secciones);
@@ -74,7 +78,7 @@ export default function App() {
         </div>
         <div className="hidden border-t border-white/10 px-5 py-4 text-[12px] text-white/50 md:block">
           <div className="text-white/80">COEZ PERÚ E.I.R.L.</div>
-          <div className="mt-0.5">Versión beta 0.7</div>
+          <div className="mt-0.5">Versión beta 0.8</div>
         </div>
         </div>
       </nav>

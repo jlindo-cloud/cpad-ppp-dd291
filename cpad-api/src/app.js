@@ -100,6 +100,11 @@ function validarTrabajador(body) {
     if (v.length > max) errors.push(`${k} admite como máximo ${max} caracteres`);
     else t[k] = v ? v.toUpperCase() : null;
   }
+  if (has('cci')) {
+    const v = body.cci == null ? '' : String(body.cci).replace(/\s+/g, '');
+    if (v && !/^\d{20}$/.test(v)) errors.push('cci debe tener 20 dígitos');
+    else t.cci = v || null;
+  }
   if (has('afiliacion')) {
     const v = String(body.afiliacion || 'ONP').trim().toUpperCase();
     if (!/^(ONP|AFP [A-Z ]{2,15})$/.test(v)) errors.push('afiliacion debe ser ONP o el nombre de la AFP');
@@ -169,7 +174,7 @@ function createApp(pool, { staticDir } = {}) {
 
   app.get('/api/salud', ah(async (_req, res) => {
     await pool.query('SELECT 1');
-    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.7.0' });
+    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.8.0' });
   }));
 
   app.use('/api/categorias', crud(pool, 'categoria', validarCatalogo, { order: 'nombre' }));
@@ -238,6 +243,7 @@ function createApp(pool, { staticDir } = {}) {
   app.use('/api/trabajadores', trabajadores);
   const asistencias = require('./asistencia')(pool, { HttpError, ah });
   app.use('/api/asistencias', asistencias);
+  app.use('/api/importaciones', require('./importacion')(pool, { HttpError, ah }));
   app.use('/api/planillas', require('./planilla')(pool, { HttpError, ah, resumenSemana: asistencias.resumenSemana, obraActiva: asistencias.obraActiva }));
 
   // En la beta, la misma aplicación sirve la interfaz web ya compilada

@@ -19,6 +19,7 @@ Scrum con un Sprint 0 de análisis (semanas 1 a 3) y sprints de dos semanas. Cad
 | [v0.5.0](../../tree/v0.5.0) | Sprint 3 · semana 8 | Motor de cálculo de la planilla semanal, validado contra 11 boletas reales; 33 pruebas |
 | [v0.6.0](../../tree/v0.6.0) | Sprint 3 · semana 9 | Depósito calculado desde la asistencia (sueldo semanal y horas extras), adelantos y pantalla de planilla; 38 pruebas |
 | [v0.7.0](../../tree/v0.7.0) | Sprint 4 · semana 10 | Boletas en PDF con el formato de la empresa (HU10), datos de boleta del trabajador y del empleador; 41 pruebas |
+| [v0.8.0](../../tree/v0.8.0) | Sprint 4 · semana 11 | Registro de la planilla e historial de boletas (HU12); importación del padrón desde el Excel de la empresa (HU11, primera parte); 46 pruebas |
 
 ## Estructura
 

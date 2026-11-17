@@ -139,6 +139,8 @@ module.exports = function asistenciaRouter(pool, { HttpError, ah }) {
   // Reapertura para corregir una semana cerrada
   r.delete('/semana/cierre', ah(async (req, res) => {
     const { obra_id, fecha } = params(req.query);
+    const { rows: reg } = await pool.query('SELECT 1 FROM planilla_registro WHERE obra_id = $1 AND semana_inicio = $2', [obra_id, lunes(fecha)]);
+    if (reg.length) throw new HttpError(409, 'La planilla de esa semana está registrada; anule el registro antes de reabrir la asistencia');
     const { rowCount } = await pool.query('DELETE FROM semana_cierre WHERE obra_id = $1 AND semana_inicio = $2', [obra_id, lunes(fecha)]);
     if (!rowCount) throw new HttpError(404, 'La semana no está cerrada');
     res.json(await resumenSemana(await obraActiva(obra_id), fecha));

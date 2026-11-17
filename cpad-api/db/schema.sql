@@ -171,3 +171,29 @@ ALTER TABLE trabajador ADD COLUMN IF NOT EXISTS cuspp VARCHAR(20);
 -- Centro de costo tal como se imprime en la boleta y lunes de la semana 1 (numeración de semanas de la obra)
 ALTER TABLE obra ADD COLUMN IF NOT EXISTS centro_costo VARCHAR(150);
 ALTER TABLE obra ADD COLUMN IF NOT EXISTS semana_base DATE;
+
+-- Sprint 4 · HU12: planilla registrada. Las boletas se guardan tal como se emitieron y ya no cambian
+-- aunque después cambien los sueldos, la categoría o los datos del trabajador.
+CREATE TABLE IF NOT EXISTS planilla_registro (
+  obra_id         INTEGER NOT NULL REFERENCES obra(id),
+  semana_inicio   DATE NOT NULL,
+  numero_semana   INTEGER,
+  origen          VARCHAR(10) NOT NULL DEFAULT 'CPAD' CHECK (origen IN ('CPAD', 'EXCEL')),
+  empresa         JSONB NOT NULL,
+  obra            JSONB NOT NULL,
+  registrado_en   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (obra_id, semana_inicio),
+  CONSTRAINT ck_registro_lunes CHECK (EXTRACT(ISODOW FROM semana_inicio) = 1)
+);
+CREATE TABLE IF NOT EXISTS boleta_emitida (
+  obra_id         INTEGER NOT NULL,
+  semana_inicio   DATE NOT NULL,
+  trabajador_id   INTEGER NOT NULL REFERENCES trabajador(id),
+  deposito        NUMERIC(10,2) NOT NULL,
+  datos           JSONB NOT NULL,
+  PRIMARY KEY (obra_id, semana_inicio, trabajador_id),
+  FOREIGN KEY (obra_id, semana_inicio) REFERENCES planilla_registro(obra_id, semana_inicio) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_boleta_trabajador ON boleta_emitida(trabajador_id);
+-- HU11: código de cuenta interbancario del padrón de la empresa
+ALTER TABLE trabajador ADD COLUMN IF NOT EXISTS cci VARCHAR(20);

@@ -73,7 +73,19 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
     catch (e) { setAviso({ tono: 'error', texto: [e.message, ...(e.datos?.detalles || [])].join(' ') }); }
   }
 
+  async function registrar() {
+    if (!confirm('Al registrar la planilla, las boletas de la semana quedan guardadas tal como están y ya no se pueden modificar. ¿Registrar?')) return;
+    try { setP(await api.post('/planillas/registro', { obra_id: Number(obraId), fecha: inicio })); setAviso({ tono: 'ok', texto: 'Planilla registrada. Sus boletas quedan en el historial.' }); }
+    catch (e) { setAviso({ tono: 'error', texto: e.message }); }
+  }
+  async function anular() {
+    if (!confirm('¿Anular el registro? Las boletas guardadas se eliminan y la planilla vuelve a calcularse con los datos actuales.')) return;
+    try { await api.del(`/planillas/registro?obra_id=${obraId}&fecha=${inicio}`); await cargar(); setAviso({ tono: 'info', texto: 'Registro anulado. Corrija la planilla y vuelva a registrarla.' }); }
+    catch (e) { setAviso({ tono: 'error', texto: e.message }); }
+  }
+
   const t = p?.totales;
+  const reg = p?.registro;
   const urlPdf = `/api/planillas/boletas.pdf?obra_id=${obraId}&fecha=${inicio}`;
   return (
     <section>
@@ -104,7 +116,9 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
           <Rotulo celdas={[
             { etiqueta: 'Obra', valor: p.obra.nombre, ancho: 'col-span-2 md:col-span-4' },
             { etiqueta: 'Semana', valor: `Del ${rango(p.semana.inicio, p.semana.fin)}`, ancho: 'col-span-2 md:col-span-4' },
-            { etiqueta: 'Asistencia', ancho: 'col-span-2 md:col-span-4', valor: <span className="inline-flex items-center gap-1.5 text-ok"><Icono n="candado" className="size-3.5" />Cerrada el {fechaHora(p.cierre.cerrado_en)}</span> },
+            { etiqueta: 'Planilla', ancho: 'col-span-2 md:col-span-4', valor: reg
+              ? <span className="inline-flex items-center gap-1.5 text-ok"><Icono n="candado" className="size-3.5" />Registrada el {fechaHora(reg.registrado_en)}</span>
+              : <span className="inline-flex items-center gap-1.5 text-pend"><Icono n="abierto" className="size-3.5" />Sin registrar · asistencia cerrada el {fechaHora(p.cierre.cerrado_en)}</span> },
           ]} />
           <dl className="num grid grid-cols-2 border-b border-linea-2 md:grid-cols-5">
             {[['Trabajadores', t.trabajadores], ['Total remuneración', sol(t.total_remuneracion)], [`ONP y descuentos`, sol(t.total_descuento)],
@@ -139,9 +153,9 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
                       </td>
                       <td className="num text-right">{b.dias}</td>
                       <td className="num text-right text-tinta-2">{b.sobretiempo_tareo ? horas(b.sobretiempo_tareo) : '·'}</td>
-                      <td className="text-right"><Editable valor={b.horas_extras_pagadas} etiqueta="Horas extras pagadas" ancho="w-16" onGuardar={(v) => guardar(b.trabajador_id, { horas_extras: v })} /></td>
+                      <td className="text-right">{reg ? <span className="num">{horas(b.horas_extras_pagadas) || '0'}</span> : <Editable valor={b.horas_extras_pagadas} etiqueta="Horas extras pagadas" ancho="w-16" onGuardar={(v) => guardar(b.trabajador_id, { horas_extras: v })} />}</td>
                       <td className="num text-right">{sol(b.pago_semana)}</td>
-                      <td className="text-right"><Editable valor={b.adelanto_entregado} etiqueta="Adelanto entregado" paso="1" onGuardar={(v) => guardar(b.trabajador_id, { adelanto: v })} /></td>
+                      <td className="text-right">{reg ? <span className="num">{sol(b.adelanto_entregado)}</span> : <Editable valor={b.adelanto_entregado} etiqueta="Adelanto entregado" paso="1" onGuardar={(v) => guardar(b.trabajador_id, { adelanto: v })} />}</td>
                       <td className="num border-l border-linea text-right">{sol(b.total_remuneracion)}</td>
                       <td className="num text-right">{sol(b.snp)}</td>
                       <td className="num text-right font-semibold">{sol(b.neto)}</td>
@@ -171,12 +185,17 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
             </table>
           </div>
           <div className="flex flex-wrap items-center gap-3 border-t border-linea-2 bg-fondo/60 px-4 py-3 text-[13px]">
-            <span className="text-tinta-2">Boletas con el formato de la empresa, una por página (A4 horizontal).</span>
-            <a href={urlPdf} target="_blank" rel="noreferrer" className={`btn-primario ml-auto ${p.boletas.length ? '' : 'pointer-events-none opacity-50'}`}><Icono n="planilla" />Boletas de la semana (PDF)</a>
+            <span className="text-tinta-2">{reg ? 'Planilla registrada: las boletas están guardadas en el historial y ya no cambian.' : 'Revise la planilla y regístrela para guardar las boletas en el historial.'}</span>
+            <div className="ml-auto flex flex-wrap gap-2">
+              {reg
+                ? <button type="button" className="btn-secundario" onClick={anular}>Anular registro</button>
+                : <button type="button" className="btn-primario" disabled={!p.boletas.length || !!p.errores.length} onClick={registrar}><Icono n="candado" />Registrar planilla</button>}
+              <a href={urlPdf} target="_blank" rel="noreferrer" className={`${reg ? 'btn-primario' : 'btn-secundario'} ${p.boletas.length ? '' : 'pointer-events-none opacity-50'}`}><Icono n="planilla" />Boletas de la semana (PDF)</a>
+            </div>
           </div>
           <p className="border-t border-linea px-4 py-2 text-[12px] text-tinta-2">
             Pago de la semana = sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol hacia arriba. El depósito descuenta el adelanto entregado.
-            La boleta desglosa ese depósito según el régimen de construcción civil. Pulse la flecha de una fila para ver la boleta.
+            La boleta desglosa ese depósito según el régimen de construcción civil. Pulse la flecha de una fila para ver la boleta.{reg ? '' : ' Las horas extras y los adelantos se pueden corregir hasta registrar la planilla.'}
           </p>
         </div>
       )}
@@ -189,7 +208,7 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
           </ul>
         </Aviso>
       )}
-      {aviso && <Aviso tono={aviso.tono} icono="alerta" className="mt-4">{aviso.texto}</Aviso>}
+      {aviso && <Aviso tono={aviso.tono} icono={aviso.tono === 'ok' ? 'ok' : 'alerta'} className="mt-4">{aviso.texto}</Aviso>}
     </section>
   );
 }

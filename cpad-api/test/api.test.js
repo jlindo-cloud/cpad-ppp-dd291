@@ -515,3 +515,127 @@ test('CP41 boletas: datos del trabajador y de la obra que imprime la boleta', as
   assert.equal(numeroSemana('2026-03-02', '2026-03-09'), null);
   assert.equal(numeroSemana('2026-09-28', null), null);
 });
+
+test('CP42 registro: solo se registra una planilla sin observaciones y luego queda bloqueada', async () => {
+  const sem = `obra_id=${S.obra}&fecha=2026-09-28`;
+  let r = await request(app).post('/api/planillas/registro').send({ obra_id: S.obra, fecha: '2026-09-28' });
+  assert.equal(r.status, 409); // el trabajador de CP37 quedó con una categoría sin sueldo
+  assert.ok(r.body.errores.length);
+  const c = (await request(app).get('/api/trabajadores/dni/50000003')).body;
+  await request(app).put(`/api/trabajadores/${c.id}`).send({ dni: c.dni, apellidos: c.apellidos, nombres: c.nombres, categoria_id: c.categoria_id,
+    especialidad_id: c.especialidad_id, obra_id: c.obra_id, fecha_ingreso: c.fecha_ingreso, categoria_pago_id: null });
+  const antes = (await request(app).get(`/api/planillas/semana?${sem}`)).body;
+  assert.equal(antes.registro, null);
+  r = await request(app).post('/api/planillas/registro').send({ obra_id: S.obra, fecha: '2026-09-30' }); // cualquier día de la semana
+  assert.equal(r.status, 201);
+  assert.ok(r.body.registro.registrado_en);
+  assert.equal(r.body.registro.numero_semana, 30);
+  assert.equal(r.body.totales.deposito, antes.totales.deposito);
+  assert.equal((await request(app).post('/api/planillas/registro').send({ obra_id: S.obra, fecha: '2026-09-28' })).status, 409);
+  assert.equal((await request(app).put('/api/planillas/ajustes').send({ obra_id: S.obra, fecha: '2026-09-28', trabajador_id: S.a, horas_extras: 2 })).status, 409);
+  assert.equal((await request(app).delete(`/api/asistencias/semana/cierre?${sem}`)).status, 409);
+  assert.equal((await request(app).post('/api/planillas/registro').send({ obra_id: S.obra, fecha: '2026-10-05' })).status, 409); // semana abierta
+});
+
+test('CP43 registro: las boletas registradas no cambian aunque cambien los datos del trabajador', async () => {
+  const sem = `obra_id=${S.obra}&fecha=2026-09-28`;
+  const antes = (await request(app).get(`/api/planillas/semana?${sem}`)).body.boletas.find((x) => x.trabajador_id === S.a);
+  const a = (await request(app).get(`/api/trabajadores/${S.a}`)).body;
+  const cats = (await request(app).get('/api/categorias')).body;
+  await request(app).put(`/api/trabajadores/${S.a}`).send({ dni: a.dni, apellidos: a.apellidos, nombres: a.nombres, categoria_id: a.categoria_id,
+    especialidad_id: a.especialidad_id, obra_id: a.obra_id, fecha_ingreso: a.fecha_ingreso?.slice(0, 10), banco: 'BBVA',
+    categoria_pago_id: cats.find((x) => x.nombre === 'CAPATAZ').id });
+  const despues = (await request(app).get(`/api/planillas/semana?${sem}`)).body.boletas.find((x) => x.trabajador_id === S.a);
+  assert.deepEqual([despues.categoria_pago, despues.deposito, despues.banco], [antes.categoria_pago, antes.deposito, antes.banco]);
+  const p = await pdf(request(app).get(`/api/planillas/boletas.pdf?${sem}`));
+  assert.equal(p.status, 200);
+  assert.equal(paginas(p.body), (await request(app).get(`/api/planillas/semana?${sem}`)).body.boletas.length);
+  await request(app).put(`/api/trabajadores/${S.a}`).send({ dni: a.dni, apellidos: a.apellidos, nombres: a.nombres, categoria_id: a.categoria_id,
+    especialidad_id: a.especialidad_id, obra_id: a.obra_id, fecha_ingreso: a.fecha_ingreso?.slice(0, 10), banco: a.banco, categoria_pago_id: a.categoria_pago_id });
+});
+
+test('CP44 historial: semanas registradas de la obra y boletas de un trabajador; el registro se puede anular', async () => {
+  let r = await request(app).get(`/api/planillas/historial?obra_id=${S.obra}`);
+  assert.equal(r.status, 200);
+  const s30 = r.body.find((x) => x.semana_inicio === '2026-09-28');
+  assert.deepEqual([s30.numero_semana, s30.semana_fin, s30.origen], [30, '2026-10-03', 'CPAD']);
+  assert.ok(s30.trabajadores > 0 && s30.total_deposito > 0);
+  const a = (await request(app).get(`/api/trabajadores/${S.a}`)).body;
+  r = await request(app).get(`/api/planillas/historial/trabajador?dni=${a.dni}`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.trabajador.id, S.a);
+  assert.equal(r.body.boletas[0].semana_inicio, '2026-09-28');
+  assert.ok(r.body.boletas[0].deposito > 0);
+  assert.equal((await request(app).get('/api/planillas/historial/trabajador?dni=123')).status, 400);
+  assert.equal((await request(app).get('/api/planillas/historial/trabajador?dni=99999999')).status, 404);
+  assert.equal((await request(app).get('/api/planillas/historial')).status, 400);
+  assert.equal((await request(app).delete(`/api/planillas/registro?obra_id=${S.obra}&fecha=2026-09-28`)).status, 200);
+  assert.equal((await request(app).delete(`/api/planillas/registro?obra_id=${S.obra}&fecha=2026-09-28`)).status, 404);
+  assert.equal((await request(app).get(`/api/planillas/historial?obra_id=${S.obra}`)).body.length, 0);
+  assert.equal((await request(app).put('/api/planillas/ajustes').send({ obra_id: S.obra, fecha: '2026-09-28', trabajador_id: S.a, horas_extras: 0 })).status, 200);
+});
+
+// HU11 · Planilla en Excel con el mismo formato que la de la empresa y datos ficticios
+async function excelPlanilla(filas) {
+  const ExcelJS = require('exceljs');
+  const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('SEM 30');
+  ws.getCell('B4').value = 'COEZ'; ws.getCell('B5').value = '(SEMANA 30) 28/09 AL 03/10';
+  ws.getRow(1).values = [null, null, null, 'CATEGORIA', 'SUELDO', 'X DIA', 'HORA'];
+  ws.getRow(3).values = [null, null, null, 'Operario', 950, 158.33, 18];
+  ws.getCell('B8').value = 'PERSONAL EN OBRA'; ws.getCell('M8').value = 'HORAS SEM 31';
+  ws.getRow(9).values = ['#', 'Apellidos y Nombres', 'Categoria', 'DNI', 'Fecha\nNacimiento', 'Fecha Ingreso', 'Banco', 'Nª Cuenta', 'CCI',
+    'DIAS ASIST', 'DSCTO', 'SUELDO', 'HORAS', 'TOT HOR', 'TOTAL PAGO'];
+  filas.forEach((f, i) => { ws.getRow(10 + i).values = [i + 1, ...f]; });
+  ws.getRow(10 + filas.length).values = [null, null, null, null, null, null, null, null, null, null, null, null, null, 'TOTAL', 9999];
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+const subir = (buf, q = '') => request(app).post(`/api/importaciones/padron${q}`).set('Content-Type', 'application/octet-stream').send(buf);
+
+test('CP45 importación: vista previa del padrón desde el Excel de la empresa', async () => {
+  const a = (await request(app).get(`/api/trabajadores/${S.a}`)).body;
+  const buf = await excelPlanilla([
+    [`${a.apellidos} ${a.nombres}`, 'Operario', a.dni, new Date(Date.UTC(1990, 4, 20)), '07/07/2025', 'BBVA', '0011000000000000001', '00110000000000000011', 6, null, 950, 2, 36, 986],
+    ['DE LA CRUZ QUISPE JUAN CARLOS', 'Peón', 1234567, new Date(Date.UTC(1985, 0, 4)), '07/07/2025', 'bcp', '19100000000001', null, 6, null, 600, 0, 0, 600],
+    ['TORRES VEGA ANA', 'Oficial', '61000002', null, null, 'BCP', '19100000000002', null, 5, null, 667, 0, 0, 667],
+    ['RAMOS SOTO LUIS', 'Maestro', '1234', '31/02/1990', null, null, null, null, 6, null, 950, 0, 0, 950],
+  ]);
+  const r = await subir(buf);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.semana, { numero: 30, desde: '28/09', hasta: '03/10' });
+  assert.deepEqual(r.body.resumen, { filas: 4, nuevos: 2, actualiza: 1, sin_cambios: 0, errores: 1 });
+  const [f1, f2, f3, f4] = r.body.filas;
+  assert.equal(f1.estado, 'actualiza');
+  assert.ok(f1.cambios.includes('cci') && f1.cambios.includes('banco'));
+  assert.deepEqual([f2.dni, f2.apellidos, f2.nombres, f2.categoria, f2.fecha_nacimiento, f2.fecha_ingreso, f2.banco],
+    ['01234567', 'DE LA CRUZ QUISPE', 'JUAN CARLOS', 'AYUDANTE', '1985-01-04', '2025-07-07', 'BCP']);
+  assert.match(f2.avisos.join(' '), /cero inicial/);
+  assert.equal(f3.estado, 'nuevo');
+  assert.equal(f4.estado, 'error');
+  assert.match(f4.errores.join(' '), /DNI inválido/);
+  assert.match(f4.errores.join(' '), /categoría «Maestro» no registrada/);
+  assert.match(f4.errores.join(' '), /fecha de nacimiento inválida/);
+  const c = await subir(buf, `?confirmar=1&obra_id=${S.obra}&especialidad_id=1`);
+  assert.equal(c.status, 400); // con errores no se registra nada
+  assert.equal((await request(app).get('/api/trabajadores/dni/61000002')).status, 404);
+  assert.equal((await subir(Buffer.from('no es un excel'))).status, 400);
+});
+
+test('CP46 importación: registra los nuevos, actualiza los existentes y no repite cambios', async () => {
+  const a = (await request(app).get(`/api/trabajadores/${S.a}`)).body;
+  const buf = await excelPlanilla([
+    [`${a.apellidos} ${a.nombres}`, 'Operario', a.dni, null, null, 'BBVA', '0011000000000000001', '00110000000000000011', 6, null, 950, 2, 36, 986],
+    ['DE LA CRUZ QUISPE JUAN CARLOS', 'Peón', 1234567, new Date(Date.UTC(1985, 0, 4)), '07/07/2025', 'bcp', '19100000000001', null, 6, null, 600, 0, 0, 600],
+    ['TORRES VEGA ANA', 'Oficial', '61000002', null, null, 'BCP', '19100000000002', null, 5, null, 667, 0, 0, 667],
+  ]);
+  assert.equal((await subir(buf, '?confirmar=1')).status, 400); // los nuevos necesitan obra y especialidad
+  const r = await subir(buf, `?confirmar=1&obra_id=${S.obra}&especialidad_id=1`);
+  assert.equal(r.status, 201);
+  assert.deepEqual([r.body.registrados, r.body.actualizados], [2, 1]);
+  const n = (await request(app).get('/api/trabajadores/dni/01234567')).body;
+  assert.deepEqual([n.apellidos, n.nombres, n.fecha_nacimiento?.slice(0, 10), n.banco, n.cuenta_bancaria, n.obra_id],
+    ['DE LA CRUZ QUISPE', 'JUAN CARLOS', '1985-01-04', 'BCP', '19100000000001', S.obra]);
+  const x = (await request(app).get(`/api/trabajadores/${S.a}`)).body;
+  assert.deepEqual([x.banco, x.cci], ['BBVA', '00110000000000000011']);
+  const otra = await subir(buf);
+  assert.deepEqual([otra.body.resumen.nuevos, otra.body.resumen.actualiza, otra.body.resumen.sin_cambios], [0, 0, 3]);
+});

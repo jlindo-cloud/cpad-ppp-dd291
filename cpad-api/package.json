@@ -1,6 +1,6 @@
 {
   "name": "cpad-api",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "CPAD - API REST del módulo de asistencia y planilla (Sprint 1: maestros)",
   "main": "index.js",
   "scripts": {
@@ -13,6 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "exceljs": "4.4.0",
     "express": "^5.2.1",
     "pdfkit": "^0.17.2",
     "pg": "^8.23.0"

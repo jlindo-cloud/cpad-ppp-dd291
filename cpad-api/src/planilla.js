@@ -152,9 +152,19 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
   }
 
   // Vista de la planilla para la pantalla: siempre responde, e informa qué trabajadores no se pudieron calcular
+  async function vistaSemana(sem) {
+    const reg = await registro(sem.obra.id, sem.semana.inicio);
+    if (!reg) return { ...(await calcularSemana(sem)), registro: null };
+    const out = await calcularSemana(sem);
+    const sum = (k) => Math.round(reg.boletas.reduce((acc, x) => acc + x[k] * 100, 0)) / 100;
+    return { ...out, boletas: reg.boletas, errores: [], registro: { registrado_en: reg.registrado_en, numero_semana: reg.numero_semana },
+      totales: { trabajadores: reg.boletas.length, total_remuneracion: sum('total_remuneracion'), total_descuento: sum('total_descuento'),
+        neto: sum('neto'), deposito: sum('deposito'), adelanto_entregado: sum('adelanto_entregado'), total_aportes: sum('total_aportes') } };
+  }
+
   r.get('/semana', ah(async (req, res) => {
     const sem = await semanaCerrada(Number(req.query.obra_id), req.query.fecha);
-    res.json(await calcularSemana(sem));
+    res.json(await vistaSemana(sem));
   }));
 
   // Cálculo con valores indicados en la petición (compatibilidad con la versión 0.5)
@@ -171,6 +181,7 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
   r.put('/ajustes', ah(async (req, res) => {
     const b = req.body || {};
     const sem = await semanaCerrada(Number(b.obra_id), b.fecha);
+    if (await registro(sem.obra.id, sem.semana.inicio)) throw new HttpError(409, 'La planilla de esa semana ya está registrada; anule el registro para corregirla');
     const tid = Number(b.trabajador_id);
     if (!sem.filas.some((f) => f.trabajador_id === tid)) throw new HttpError(404, 'El trabajador no pertenece a la planilla de esa semana');
     const errores = [];
@@ -184,37 +195,133 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
       VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (obra_id, semana_inicio, trabajador_id) DO UPDATE SET horas_extras = EXCLUDED.horas_extras,
         adelanto = EXCLUDED.adelanto, nota = EXCLUDED.nota, actualizado_en = now()`, [sem.obra.id, sem.semana.inicio, tid, h, ad, nota]);
-    res.json(await calcularSemana(sem));
+    res.json(await vistaSemana(sem));
   }));
-  // HU10: boletas en PDF (A4 horizontal), de toda la semana o de un trabajador
+  const dia = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : d);
+  const sabadoDe = (inicio) => new Date(Date.parse(inicio + 'T12:00:00Z') + 5 * 864e5).toISOString().slice(0, 10);
+
+  /** Completa las boletas con los datos del trabajador que imprime la boleta (HU10). */
+  async function conDatosBoleta(boletas) {
+    const { rows: extra } = await pool.query(`SELECT t.id, t.fecha_ingreso, t.fecha_nacimiento, t.banco, t.cuenta_bancaria, t.afiliacion, t.cuspp, e.nombre AS especialidad
+      FROM trabajador t JOIN especialidad e ON e.id = t.especialidad_id WHERE t.id = ANY($1)`, [boletas.map((b) => b.trabajador_id)]);
+    const ex = new Map(extra.map((x) => [x.id, x]));
+    return boletas.map((b) => { const { id, ...x } = ex.get(b.trabajador_id) || {}; return { ...b, ...x, fecha_ingreso: dia(x.fecha_ingreso), fecha_nacimiento: dia(x.fecha_nacimiento) }; });
+  }
+
+  async function empleador() {
+    const { rows: [empresa] } = await pool.query('SELECT razon_social, ruc, direccion, representante, cargo_representante FROM empresa WHERE id = 1');
+    if (!empresa) throw new HttpError(409, 'Faltan los datos del empleador');
+    return empresa;
+  }
+
+  /** Planilla registrada de una semana (HU12), o null si aún no se registró. */
+  async function registro(obra_id, inicio) {
+    const { rows: [reg] } = await pool.query('SELECT * FROM planilla_registro WHERE obra_id = $1 AND semana_inicio = $2', [obra_id, inicio]);
+    if (!reg) return null;
+    const { rows } = await pool.query(`SELECT b.datos FROM boleta_emitida b WHERE b.obra_id = $1 AND b.semana_inicio = $2
+      ORDER BY b.datos->>'apellidos', b.datos->>'nombres'`, [obra_id, inicio]);
+    return { ...reg, semana_inicio: dia(reg.semana_inicio), boletas: rows.map((x) => x.datos) };
+  }
+
+  const lunesDe = (fecha) => {
+    if (!FECHA.test(String(fecha || ''))) throw new HttpError(400, 'fecha debe tener el formato AAAA-MM-DD');
+    const d = new Date(fecha + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  };
+
+  // HU10 · HU12: boletas en PDF (A4 horizontal), de toda la semana o de un trabajador.
+  // Si la planilla está registrada se emiten las boletas guardadas; si no, se calculan sobre la semana cerrada.
   r.get('/boletas.pdf', ah(async (req, res) => {
-    const sem = await semanaCerrada(Number(req.query.obra_id), req.query.fecha);
-    const out = await calcularSemana(sem);
-    let boletas = out.boletas;
+    const obra_id = Number(req.query.obra_id);
+    if (!Number.isInteger(obra_id) || obra_id <= 0) throw new HttpError(400, 'obra_id es obligatorio');
+    const reg = await registro(obra_id, lunesDe(req.query.fecha));
+    let boletas; let errores = []; let ctx;
+    if (reg) {
+      boletas = reg.boletas;
+      ctx = { empresa: reg.empresa, obra: reg.obra, numero: reg.numero_semana, inicio: reg.semana_inicio };
+    } else {
+      const sem = await semanaCerrada(obra_id, req.query.fecha);
+      const out = await calcularSemana(sem);
+      boletas = out.boletas; errores = out.errores;
+      ctx = { empresa: null, obra: sem.obra, numero: numeroSemana(sem.semana.inicio, dia(sem.obra.semana_base)), inicio: sem.semana.inicio };
+    }
     if (req.query.trabajador_id) {
       const tid = Number(req.query.trabajador_id);
       boletas = boletas.filter((b) => b.trabajador_id === tid);
       if (!boletas.length) {
-        const e = out.errores.find((x) => x.trabajador_id === tid);
+        const e = errores.find((x) => x.trabajador_id === tid);
         throw new HttpError(e ? 409 : 404, e ? `No se puede emitir la boleta: ${e.errores.join('; ')}` : 'El trabajador no tiene boleta en esa semana');
       }
     }
     if (!boletas.length) throw new HttpError(409, 'No hay boletas que emitir en esa semana');
-    const { rows: [empresa] } = await pool.query('SELECT * FROM empresa WHERE id = 1');
-    if (!empresa) throw new HttpError(409, 'Faltan los datos del empleador');
-    const { rows: extra } = await pool.query(`SELECT t.id, t.fecha_ingreso, t.fecha_nacimiento, t.banco, t.cuenta_bancaria, t.afiliacion, t.cuspp, e.nombre AS especialidad
-      FROM trabajador t JOIN especialidad e ON e.id = t.especialidad_id WHERE t.id = ANY($1)`, [boletas.map((b) => b.trabajador_id)]);
-    const ex = new Map(extra.map((x) => [x.id, x]));
-    const dia = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : d);
-    boletas = boletas.map((b) => { const x = ex.get(b.trabajador_id) || {}; return { ...b, ...x, fecha_ingreso: dia(x.fecha_ingreso), fecha_nacimiento: dia(x.fecha_nacimiento) }; });
-    const inicio = sem.semana.inicio;
-    const sabado = new Date(Date.parse(inicio + 'T12:00:00Z') + 5 * 864e5).toISOString().slice(0, 10);
-    const base = sem.obra.semana_base ? dia(sem.obra.semana_base) : null;
-    const numero = numeroSemana(inicio, base);
+    if (!reg) { ctx.empresa = await empleador(); boletas = await conDatosBoleta(boletas); }
+    const inicio = ctx.inicio;
     res.setHeader('Content-Type', 'application/pdf');
-    const nombre = boletas.length === 1 ? `boleta_${inicio}_${boletas[0].dni}.pdf` : `boletas_${sem.obra.codigo}_${inicio}.pdf`;
+    const nombre = boletas.length === 1 ? `boleta_${inicio}_${boletas[0].dni}.pdf` : `boletas_${ctx.obra.codigo}_${inicio}.pdf`;
     res.setHeader('Content-Disposition', `${req.query.descargar ? 'attachment' : 'inline'}; filename="${nombre}"`);
-    generarBoletas(res, boletas, { empresa, obra: sem.obra, semana: { inicio, sabado }, numero });
+    generarBoletas(res, boletas, { empresa: ctx.empresa, obra: ctx.obra, semana: { inicio, sabado: sabadoDe(inicio) }, numero: ctx.numero });
+  }));
+
+  // HU12 · Registra la planilla de una semana cerrada: guarda cada boleta tal como se emite
+  r.post('/registro', ah(async (req, res) => {
+    const b = req.body || {};
+    const sem = await semanaCerrada(Number(b.obra_id), b.fecha);
+    if (await registro(sem.obra.id, sem.semana.inicio)) throw new HttpError(409, 'La planilla de esa semana ya está registrada');
+    const out = await calcularSemana(sem);
+    if (out.errores.length) return res.status(409).json({ error: 'No se puede registrar: hay trabajadores sin calcular', errores: out.errores });
+    if (!out.boletas.length) throw new HttpError(409, 'La semana no tiene boletas que registrar');
+    const empresa = await empleador();
+    const boletas = await conDatosBoleta(out.boletas);
+    const o = sem.obra;
+    const obra = { id: o.id, codigo: o.codigo, nombre: o.nombre, centro_costo: o.centro_costo || null };
+    const numero = numeroSemana(sem.semana.inicio, dia(o.semana_base));
+    const cx = await pool.connect();
+    try {
+      await cx.query('BEGIN');
+      await cx.query('INSERT INTO planilla_registro (obra_id, semana_inicio, numero_semana, origen, empresa, obra) VALUES ($1,$2,$3,$4,$5,$6)',
+        [o.id, sem.semana.inicio, numero, 'CPAD', empresa, obra]);
+      for (const x of boletas) {
+        await cx.query('INSERT INTO boleta_emitida (obra_id, semana_inicio, trabajador_id, deposito, datos) VALUES ($1,$2,$3,$4,$5)',
+          [o.id, sem.semana.inicio, x.trabajador_id, x.deposito, x]);
+      }
+      await cx.query('COMMIT');
+    } catch (e) { await cx.query('ROLLBACK'); throw e; } finally { cx.release(); }
+    res.status(201).json(await vistaSemana(sem));
+  }));
+
+  // Anula el registro para corregir la semana (las boletas guardadas se eliminan)
+  r.delete('/registro', ah(async (req, res) => {
+    const obra_id = Number(req.query.obra_id);
+    const { rowCount } = await pool.query('DELETE FROM planilla_registro WHERE obra_id = $1 AND semana_inicio = $2', [obra_id, lunesDe(req.query.fecha)]);
+    if (!rowCount) throw new HttpError(404, 'La planilla de esa semana no está registrada');
+    res.json({ anulado: true });
+  }));
+
+  // HU12 · Historial de planillas registradas de una obra
+  r.get('/historial', ah(async (req, res) => {
+    const obra_id = Number(req.query.obra_id);
+    if (!Number.isInteger(obra_id) || obra_id <= 0) throw new HttpError(400, 'obra_id es obligatorio');
+    const { rows } = await pool.query(`SELECT r.semana_inicio, r.numero_semana, r.origen, r.registrado_en,
+        COUNT(b.*)::int AS trabajadores, COALESCE(SUM(b.deposito), 0)::float AS total_deposito
+      FROM planilla_registro r LEFT JOIN boleta_emitida b ON b.obra_id = r.obra_id AND b.semana_inicio = r.semana_inicio
+      WHERE r.obra_id = $1 GROUP BY r.obra_id, r.semana_inicio ORDER BY r.semana_inicio DESC`, [obra_id]);
+    res.json(rows.map((x) => ({ ...x, semana_inicio: dia(x.semana_inicio), semana_fin: sabadoDe(dia(x.semana_inicio)) })));
+  }));
+
+  // HU12 · Boletas de un trabajador en todas las semanas registradas (por id o DNI)
+  r.get('/historial/trabajador', ah(async (req, res) => {
+    const dni = String(req.query.dni || '').trim();
+    const where = req.query.trabajador_id ? 't.id = $1' : 't.dni = $1';
+    const v = req.query.trabajador_id ? Number(req.query.trabajador_id) : dni;
+    if (!req.query.trabajador_id && !/^\d{8}$/.test(dni)) throw new HttpError(400, 'Indique el DNI (8 dígitos) o trabajador_id');
+    const { rows: [t] } = await pool.query(`SELECT t.id, t.dni, t.apellidos, t.nombres FROM trabajador t WHERE ${where}`, [v]);
+    if (!t) throw new HttpError(404, 'No existe un trabajador con ese DNI');
+    const { rows } = await pool.query(`SELECT b.obra_id, r.obra->>'codigo' AS obra, b.semana_inicio, r.numero_semana, r.origen,
+        b.deposito::float AS deposito, (b.datos->>'dias')::int AS dias, (b.datos->>'horas_extras_pagadas')::float AS horas_extras,
+        b.datos->>'categoria_pago' AS categoria, (b.datos->>'total_remuneracion')::float AS total_remuneracion
+      FROM boleta_emitida b JOIN planilla_registro r ON r.obra_id = b.obra_id AND r.semana_inicio = b.semana_inicio
+      WHERE b.trabajador_id = $1 ORDER BY b.semana_inicio DESC`, [t.id]);
+    res.json({ trabajador: t, boletas: rows.map((x) => ({ ...x, semana_inicio: dia(x.semana_inicio), semana_fin: sabadoDe(dia(x.semana_inicio)) })) });
   }));
   return r;
 };
