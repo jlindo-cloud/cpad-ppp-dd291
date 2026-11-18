@@ -87,11 +87,12 @@ export default function Importar({ obras, obraId, setObraId, ir }) {
             </label>
             {archivo && <span className="ml-3 text-[13px]">{archivo.name}</span>}
           </div>
+          <a href="/plantilla_planilla_semanal.xlsx" download className="btn-quieto ml-auto"><Icono n="planilla" />Descargar plantilla</a>
         </div>
         <p className="mt-3 text-[12px] text-tinta-2">
           {MODOS[modo].detalle} La semana se ubica por el título de la hoja, por ejemplo «(SEMANA 30) 28/09 AL 03/10». Las horas extras de la hoja son las de la semana
           siguiente, que se pagan con ella, y el DSCTO ya está restado en el TOTAL PAGO. Los trabajadores que ya existen solo actualizan sus datos personales y bancarios.
-          No se registra nada hasta confirmar.
+          No se registra nada hasta confirmar. La plantilla tiene el formato que el sistema espera, con las fórmulas y las instrucciones.
         </p>
       </div>
 
