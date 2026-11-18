@@ -174,7 +174,7 @@ function createApp(pool, { staticDir } = {}) {
 
   app.get('/api/salud', ah(async (_req, res) => {
     await pool.query('SELECT 1');
-    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.8.0' });
+    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.8.1' });
   }));
 
   app.use('/api/categorias', crud(pool, 'categoria', validarCatalogo, { order: 'nombre' }));
@@ -243,8 +243,9 @@ function createApp(pool, { staticDir } = {}) {
   app.use('/api/trabajadores', trabajadores);
   const asistencias = require('./asistencia')(pool, { HttpError, ah });
   app.use('/api/asistencias', asistencias);
-  app.use('/api/importaciones', require('./importacion')(pool, { HttpError, ah }));
-  app.use('/api/planillas', require('./planilla')(pool, { HttpError, ah, resumenSemana: asistencias.resumenSemana, obraActiva: asistencias.obraActiva }));
+  const planillas = require('./planilla')(pool, { HttpError, ah, resumenSemana: asistencias.resumenSemana, obraActiva: asistencias.obraActiva });
+  app.use('/api/importaciones', require('./importacion')(pool, { HttpError, ah, planillas }));
+  app.use('/api/planillas', planillas);
 
   // En la beta, la misma aplicación sirve la interfaz web ya compilada
   if (staticDir) {

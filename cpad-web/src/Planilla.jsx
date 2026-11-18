@@ -29,8 +29,8 @@ function Desglose({ b, pctSnp, pdf }) {
       <div className="min-w-56 flex-1 text-[13px]">
         <div className="mb-1.5 text-[12px] font-medium text-tinta-2">Cuadre con el pago</div>
         <p className="num">Sueldo semanal {sol(b.sueldo_semanal)} · {b.dias} {b.dias === 1 ? 'día' : 'días'}{b.horas_extras_pagadas ? ` · ${horas(b.horas_extras_pagadas)} h extra a ${sol(b.tarifa_hora_extra)}` : ''}</p>
-        <p className="num mt-1">Pago de la semana {sol(b.pago_semana)}{b.adelanto_entregado ? ` − adelanto ${sol(b.adelanto_entregado)}` : ''} = <strong>{sol(b.deposito)}</strong></p>
-        <p className="mt-1 text-tinta-2">Jornal de tabla {sol(b.jornal)} ({b.categoria_pago.toLowerCase()}). El neto de la boleta coincide con el depósito{b.cuadre === 'adelantos' ? '; el exceso se registra como adelanto en la boleta' : ''}.</p>
+        <p className="num mt-1">Pago de la semana {sol(b.pago_semana)}{b.descuento ? ` − descuento ${sol(b.descuento)}` : ''} = depósito <strong>{sol(b.deposito)}</strong></p>
+        <p className="mt-1 text-tinta-2">Jornal de tabla {sol(b.jornal)} ({b.categoria_pago.toLowerCase()}). El neto de la boleta coincide con el pago de la semana{b.cuadre === 'adelantos' ? '; el exceso se registra como adelanto en la boleta' : ''}.{b.descuento ? ' El descuento (DSCTO) es de control interno y no se imprime en la boleta.' : ''}</p>
         {b.nota && <p className="mt-1 text-tinta-2">Nota: {b.nota}</p>}
         <a href={pdf} target="_blank" rel="noreferrer" className="btn-secundario mt-3 inline-flex"><Icono n="planilla" />Boleta en PDF</a>
       </div>
@@ -68,7 +68,7 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
 
   async function guardar(trabajador_id, cambio) {
     const actual = p.boletas.find((x) => x.trabajador_id === trabajador_id);
-    const base = { horas_extras: actual?.horas_extras_pagadas ?? 0, adelanto: actual?.adelanto_entregado ?? 0, nota: actual?.nota ?? null };
+    const base = { horas_extras: actual?.horas_extras_pagadas ?? 0, descuento: actual?.descuento ?? 0, nota: actual?.nota ?? null };
     try { setP(await api.put('/planillas/ajustes', { obra_id: Number(obraId), fecha: inicio, trabajador_id, ...base, ...cambio })); setAviso(null); }
     catch (e) { setAviso({ tono: 'error', texto: [e.message, ...(e.datos?.detalles || [])].join(' ') }); }
   }
@@ -89,7 +89,7 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
   const urlPdf = `/api/planillas/boletas.pdf?obra_id=${obraId}&fecha=${inicio}`;
   return (
     <section>
-      <Encabezado titulo="Planilla semanal" detalle="Calcula la planilla a partir de la asistencia cerrada: horas extras, adelantos, depósito y boleta de cada trabajador.">
+      <Encabezado titulo="Planilla semanal" detalle="Calcula la planilla a partir de la asistencia cerrada: horas extras, descuentos, depósito y boleta de cada trabajador.">
         <Campo etiqueta="Obra">
           <select value={obraId} onChange={(e) => setObraId(e.target.value)} className="campo max-w-[20rem]">
             {obras.map((x) => <option key={x.id} value={x.id}>{x.codigo} · {x.nombre}</option>)}
@@ -117,12 +117,12 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
             { etiqueta: 'Obra', valor: p.obra.nombre, ancho: 'col-span-2 md:col-span-4' },
             { etiqueta: 'Semana', valor: `Del ${rango(p.semana.inicio, p.semana.fin)}`, ancho: 'col-span-2 md:col-span-4' },
             { etiqueta: 'Planilla', ancho: 'col-span-2 md:col-span-4', valor: reg
-              ? <span className="inline-flex items-center gap-1.5 text-ok"><Icono n="candado" className="size-3.5" />Registrada el {fechaHora(reg.registrado_en)}</span>
+              ? <span className="inline-flex items-center gap-1.5 text-ok"><Icono n="candado" className="size-3.5" />Registrada el {fechaHora(reg.registrado_en)}{reg.origen === 'EXCEL' ? ' · desde Excel' : ''}</span>
               : <span className="inline-flex items-center gap-1.5 text-pend"><Icono n="abierto" className="size-3.5" />Sin registrar · asistencia cerrada el {fechaHora(p.cierre.cerrado_en)}</span> },
           ]} />
           <dl className="num grid grid-cols-2 border-b border-linea-2 md:grid-cols-5">
             {[['Trabajadores', t.trabajadores], ['Total remuneración', sol(t.total_remuneracion)], [`ONP y descuentos`, sol(t.total_descuento)],
-              ['Adelantos entregados', sol(t.adelanto_entregado)], ['Depósito de la semana', sol(t.deposito)]].map(([k, v], i) => (
+              ['Descuentos (DSCTO)', sol(t.descuento)], ['Depósito de la semana', sol(t.deposito)]].map(([k, v], i) => (
               <div key={k} className="border-linea px-4 py-3 [&:not(:first-child)]:border-l">
                 <dt className="text-[11.5px] text-tinta-2">{k}</dt>
                 <dd className={`titulo mt-0.5 text-[22px] leading-none ${i === 4 ? 'text-coez' : ''}`}>{i ? `S/ ${v}` : v}</dd>
@@ -134,10 +134,11 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
               <thead>
                 <tr>
                   <th className="w-10 text-right">N.°</th><th>Trabajador</th><th className="text-right">Días</th>
-                  <th className="text-right" title="Sobretiempo registrado en el tareo, como referencia">Sobret. tareo</th>
-                  <th className="text-right">H. extra pagadas</th><th className="text-right">Pago semana</th><th className="text-right">Adelanto</th>
+                  <th className="text-right" title={p.semana_horas_extras ? `Sobretiempo del tareo de la semana siguiente (${rango(p.semana_horas_extras.inicio, p.semana_horas_extras.fin)}), cuyas horas extras se pagan con esta planilla` : 'Semana importada desde Excel'}>Sobret. sem. sig.</th>
+                  <th className="text-right">H. extra pagadas</th><th className="text-right">Pago semana</th><th className="text-right" title="Adelantos y descuentos varios; no se imprimen en la boleta">DSCTO</th>
+                  <th className="text-right">Depósito</th>
                   <th className="border-l border-linea text-right">Total rem.</th><th className="text-right">ONP {horas(p.parametros.pct_snp)} %</th>
-                  <th className="text-right">Neto = depósito</th><th className="w-8" />
+                  <th className="text-right">Neto boleta</th><th className="w-8" />
                 </tr>
               </thead>
               <tbody>
@@ -155,10 +156,11 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
                       <td className="num text-right text-tinta-2">{b.sobretiempo_tareo ? horas(b.sobretiempo_tareo) : '·'}</td>
                       <td className="text-right">{reg ? <span className="num">{horas(b.horas_extras_pagadas) || '0'}</span> : <Editable valor={b.horas_extras_pagadas} etiqueta="Horas extras pagadas" ancho="w-16" onGuardar={(v) => guardar(b.trabajador_id, { horas_extras: v })} />}</td>
                       <td className="num text-right">{sol(b.pago_semana)}</td>
-                      <td className="text-right">{reg ? <span className="num">{sol(b.adelanto_entregado)}</span> : <Editable valor={b.adelanto_entregado} etiqueta="Adelanto entregado" paso="1" onGuardar={(v) => guardar(b.trabajador_id, { adelanto: v })} />}</td>
+                      <td className="text-right">{reg ? <span className="num">{sol(b.descuento)}</span> : <Editable valor={b.descuento} etiqueta="Descuento (DSCTO)" paso="1" onGuardar={(v) => guardar(b.trabajador_id, { descuento: v })} />}</td>
+                      <td className="num text-right font-semibold">{sol(b.deposito)}</td>
                       <td className="num border-l border-linea text-right">{sol(b.total_remuneracion)}</td>
                       <td className="num text-right">{sol(b.snp)}</td>
-                      <td className="num text-right font-semibold">{sol(b.neto)}</td>
+                      <td className="num text-right">{sol(b.neto)}</td>
                       <td>
                         <button className="btn-quieto h-7 px-1.5" aria-expanded={abierto === b.trabajador_id} aria-label="Ver boleta"
                           onClick={() => setAbierto(abierto === b.trabajador_id ? null : b.trabajador_id)}>
@@ -166,16 +168,17 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
                         </button>
                       </td>
                     </tr>
-                    {abierto === b.trabajador_id && <tr><td colSpan="11" className="p-0"><Desglose b={b} pctSnp={p.parametros.pct_snp} pdf={`${urlPdf}&trabajador_id=${b.trabajador_id}`} /></td></tr>}
+                    {abierto === b.trabajador_id && <tr><td colSpan="12" className="p-0"><Desglose b={b} pctSnp={p.parametros.pct_snp} pdf={`${urlPdf}&trabajador_id=${b.trabajador_id}`} /></td></tr>}
                   </Fragment>
                 ))}
-                {!p.boletas.length && <tr><td colSpan="11" className="py-10 text-center text-tinta-2">No hay trabajadores con días laborados en esta semana.</td></tr>}
+                {!p.boletas.length && <tr><td colSpan="12" className="py-10 text-center text-tinta-2">No hay trabajadores con días laborados en esta semana.</td></tr>}
               </tbody>
               {!!p.boletas.length && (
                 <tfoot className="border-t-2 border-linea-2 bg-fondo/60 font-semibold">
                   <tr>
                     <td /><td className="px-3 py-2.5">Total de la semana</td><td colSpan="4" />
-                    <td className="num px-3 text-right">{sol(t.adelanto_entregado)}</td>
+                    <td className="num px-3 text-right">{sol(t.descuento)}</td>
+                    <td className="num px-3 text-right">{sol(t.deposito)}</td>
                     <td className="num border-l border-linea px-3 text-right">{sol(t.total_remuneracion)}</td>
                     <td className="num px-3 text-right">{sol(p.boletas.reduce((a, x) => a + x.snp * 100, 0) / 100)}</td>
                     <td className="num px-3 text-right">{sol(t.neto)}</td><td />
@@ -194,8 +197,9 @@ export default function Planilla({ obras, obraId, setObraId, fecha, setFecha, ir
             </div>
           </div>
           <p className="border-t border-linea px-4 py-2 text-[12px] text-tinta-2">
-            Pago de la semana = sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol hacia arriba. El depósito descuenta el adelanto entregado.
-            La boleta desglosa ese depósito según el régimen de construcción civil. Pulse la flecha de una fila para ver la boleta.{reg ? '' : ' Las horas extras y los adelantos se pueden corregir hasta registrar la planilla.'}
+            Pago de la semana = sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol hacia arriba. Las horas extras pagadas son las de la semana siguiente{p.semana_horas_extras
+              ? ` (${rango(p.semana_horas_extras.inicio, p.semana_horas_extras.fin)}${p.semana_horas_extras.cerrada ? '' : ', aún sin cerrar'})` : ''}. El depósito descuenta el DSCTO, que no se imprime en la boleta.
+            La boleta desglosa el pago de la semana según el régimen de construcción civil. Pulse la flecha de una fila para ver la boleta.{reg ? '' : ' Las horas extras y el DSCTO se pueden corregir hasta registrar la planilla.'}
           </p>
         </div>
       )}

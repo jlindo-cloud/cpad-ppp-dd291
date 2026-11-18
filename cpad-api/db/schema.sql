@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS ajuste_planilla (
   semana_inicio   DATE NOT NULL,
   trabajador_id   INTEGER NOT NULL REFERENCES trabajador(id),
   horas_extras    NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (horas_extras >= 0 AND horas_extras <= 60),
-  adelanto        NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (adelanto >= 0),
+  descuento       NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (descuento >= 0),
   nota            VARCHAR(120),
   actualizado_en  TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (obra_id, semana_inicio, trabajador_id),
@@ -197,3 +197,11 @@ CREATE TABLE IF NOT EXISTS boleta_emitida (
 CREATE INDEX IF NOT EXISTS ix_boleta_trabajador ON boleta_emitida(trabajador_id);
 -- HU11: código de cuenta interbancario del padrón de la empresa
 ALTER TABLE trabajador ADD COLUMN IF NOT EXISTS cci VARCHAR(20);
+
+-- Semana 11: la columna DSCTO de la planilla (adelantos y descuentos varios) se descuenta del depósito
+-- como control interno y no se imprime en la boleta. Bases creadas antes: se renombra la columna.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ajuste_planilla' AND column_name = 'adelanto') THEN
+    ALTER TABLE ajuste_planilla RENAME COLUMN adelanto TO descuento;
+  END IF;
+END $$;

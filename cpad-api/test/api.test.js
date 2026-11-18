@@ -425,27 +425,28 @@ test('CP34 planilla: la regla de pago reproduce los 11 depósitos de la semana 3
   }
 });
 
-test('CP35 planilla: registra horas extras y adelanto, y el depósito se calcula desde la asistencia', async () => {
-  const r = await request(app).put('/api/planillas/ajustes').send({ obra_id: S.obra, fecha: '2026-09-28', trabajador_id: S.a, horas_extras: 2, adelanto: 100, nota: 'Adelanto del miércoles' });
+test('CP35 planilla: registra horas extras y descuento (DSCTO); el descuento baja el depósito pero no figura en la boleta', async () => {
+  const r = await request(app).put('/api/planillas/ajustes').send({ obra_id: S.obra, fecha: '2026-09-28', trabajador_id: S.a, horas_extras: 2, descuento: 100, nota: 'Adelanto del miércoles' });
   assert.equal(r.status, 200);
   const g = await request(app).get(`/api/planillas/semana?obra_id=${S.obra}&fecha=2026-09-30`);
   assert.equal(g.status, 200);
   const a = g.body.boletas.find((x) => x.trabajador_id === S.a);
-  // operario, 6 días: 950 + 2 × 18 = 986; menos el adelanto de 100
-  assert.deepEqual([a.pago_semana, a.adelanto_entregado, a.deposito, a.neto, a.nota], [986, 100, 886, 886, 'Adelanto del miércoles']);
+  // operario, 6 días: 950 + 2 × 18 = 986; el depósito descuenta 100 y la boleta se cuadra con el pago (986)
+  assert.deepEqual([a.pago_semana, a.descuento, a.deposito, a.neto, a.nota], [986, 100, 886, 986, 'Adelanto del miércoles']);
+  assert.ok(g.body.semana_horas_extras.inicio === '2026-10-05' && 'cerrada' in g.body.semana_horas_extras);
   assert.equal(g.body.totales.deposito, g.body.boletas.reduce((s, x) => s + x.deposito, 0));
 });
 
-test('CP36 planilla: valida los ajustes y avisa cuando el adelanto supera el pago', async () => {
+test('CP36 planilla: valida los ajustes y avisa cuando el descuento supera el pago', async () => {
   const base = { obra_id: S.obra, fecha: '2026-09-28', trabajador_id: S.a };
   assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, horas_extras: 70 })).status, 400);
-  assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, adelanto: -5 })).status, 400);
+  assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, descuento: -5 })).status, 400);
   assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, trabajador_id: 999999 })).status, 404);
-  const r = await request(app).put('/api/planillas/ajustes').send({ ...base, horas_extras: 0, adelanto: 2000 });
+  const r = await request(app).put('/api/planillas/ajustes').send({ ...base, horas_extras: 0, descuento: 2000 });
   assert.equal(r.status, 200);
   const e = r.body.errores.find((x) => x.trabajador_id === S.a);
-  assert.match(e.errores.join(' '), /adelanto iguala o supera/);
-  assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, horas_extras: 0, adelanto: 0 })).status, 200);
+  assert.match(e.errores.join(' '), /descuento iguala o supera/);
+  assert.equal((await request(app).put('/api/planillas/ajustes').send({ ...base, horas_extras: 0, adelanto: 0 })).status, 200); // «adelanto» se acepta por compatibilidad
 });
 
 test('CP37 planilla: el capataz se desglosa con el jornal del operario y una categoría sin tabla no se calcula', async () => {
@@ -471,7 +472,7 @@ test('CP37 planilla: el capataz se desglosa con el jornal del operario y una cat
 test('CP38 planilla: el pago de la semana se redondea al sol hacia arriba', () => {
   assert.equal(calcularDeposito({ sueldo_semanal: 800, dias: 4 }).deposito, 534);        // 533,33 → 534
   assert.equal(calcularDeposito({ sueldo_semanal: 600, dias: 5, horas_extras: 2, tarifa_hora_extra: 14 }).deposito, 528); // 500 + 28
-  assert.equal(calcularDeposito({ sueldo_semanal: 1200, dias: 6, horas_extras: 1.5, tarifa_hora_extra: 20, adelanto: 100 }).deposito, 1130);
+  assert.equal(calcularDeposito({ sueldo_semanal: 1200, dias: 6, horas_extras: 1.5, tarifa_hora_extra: 20, descuento: 100 }).deposito, 1130);
 });
 
 const pdf = (r) => r.buffer(true).parse((res, cb) => { const c = []; res.on('data', (d) => c.push(d)); res.on('end', () => cb(null, Buffer.concat(c))); });
@@ -576,10 +577,10 @@ test('CP44 historial: semanas registradas de la obra y boletas de un trabajador;
 });
 
 // HU11 · Planilla en Excel con el mismo formato que la de la empresa y datos ficticios
-async function excelPlanilla(filas) {
+async function excelPlanilla(filas, titulo = '(SEMANA 30) 28/09 AL 03/10') {
   const ExcelJS = require('exceljs');
   const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('SEM 30');
-  ws.getCell('B4').value = 'COEZ'; ws.getCell('B5').value = '(SEMANA 30) 28/09 AL 03/10';
+  ws.getCell('B4').value = 'COEZ'; ws.getCell('B5').value = titulo;
   ws.getRow(1).values = [null, null, null, 'CATEGORIA', 'SUELDO', 'X DIA', 'HORA'];
   ws.getRow(3).values = [null, null, null, 'Operario', 950, 158.33, 18];
   ws.getCell('B8').value = 'PERSONAL EN OBRA'; ws.getCell('M8').value = 'HORAS SEM 31';
@@ -638,4 +639,49 @@ test('CP46 importación: registra los nuevos, actualiza los existentes y no repi
   assert.deepEqual([x.banco, x.cci], ['BBVA', '00110000000000000011']);
   const otra = await subir(buf);
   assert.deepEqual([otra.body.resumen.nuevos, otra.body.resumen.actualiza, otra.body.resumen.sin_cambios], [0, 0, 3]);
+});
+
+const subirPlanilla = (buf, q = '') => request(app).post(`/api/importaciones/planilla${q}`).set('Content-Type', 'application/octet-stream').send(buf);
+
+test('CP47 importación de semana pagada: ubica la semana por su número y valida lo pagado', async () => {
+  const a = (await request(app).get(`/api/trabajadores/${S.a}`)).body;
+  const filas = [
+    // días de la semana 29 y horas extras de la semana 30; DSCTO ya restado en TOTAL PAGO
+    [`${a.apellidos} ${a.nombres}`, 'Operario', a.dni, null, null, null, null, null, 6, 50, 950, 2, 36, 936],
+    ['PAREDES LUNA ROSA', 'Oficial', '61000009', null, '21/09/2026', 'BCP', '19100000000009', null, 5, null, 667, 0, 0, 667],
+    ['SOTO RIOS ANA', 'Oficial', '61000010', null, null, null, null, null, 6, null, 800, 1, 16, 820],
+  ];
+  let r = await subirPlanilla(await excelPlanilla(filas, '(SEMANA 29) 21/09 AL 26/09'), `?obra_id=${S.obra}`);
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.body.planilla.numero, r.body.planilla.inicio, r.body.planilla.fin, r.body.planilla.pago], [29, '2026-09-21', '2026-09-26', '2026-10-03']);
+  assert.deepEqual(r.body.planilla.errores, []);
+  assert.equal(r.body.resumen.errores, 1);
+  assert.match(r.body.filas[2].errores.join(' '), /no coincide con TOTAL PAGO/);
+  assert.equal((await subirPlanilla(await excelPlanilla(filas, '(SEMANA 29) 21/09 AL 26/09'), `?obra_id=${S.obra}&confirmar=1&especialidad_id=1`)).status, 400);
+  r = await subirPlanilla(await excelPlanilla(filas.slice(0, 2), '(SEMANA 29) 22/09 AL 27/09'), `?obra_id=${S.obra}`);
+  assert.match(r.body.planilla.errores.join(' '), /la semana 29 empieza el 21\/09/);
+  assert.equal((await subirPlanilla(await excelPlanilla(filas.slice(0, 2), '(SEMANA 29) 21/09 AL 26/09'))).status, 400); // sin obra
+});
+
+test('CP48 importación de semana pagada: registra la semana en el historial con sus boletas', async () => {
+  const a = (await request(app).get(`/api/trabajadores/${S.a}`)).body;
+  const buf = await excelPlanilla([
+    [`${a.apellidos} ${a.nombres}`, 'Operario', a.dni, null, null, null, null, null, 6, 50, 950, 2, 36, 936],
+    ['PAREDES LUNA ROSA', 'Oficial', '61000009', null, '21/09/2026', 'BCP', '19100000000009', null, 5, null, 667, 0, 0, 667],
+  ], '(SEMANA 29) 21/09 AL 26/09');
+  const r = await subirPlanilla(buf, `?obra_id=${S.obra}&confirmar=1&especialidad_id=1`);
+  assert.equal(r.status, 201);
+  assert.deepEqual([r.body.semana, r.body.boletas, r.body.total_pago, r.body.registrados], [29, 2, 1603, 1]);
+  const h = (await request(app).get(`/api/planillas/historial?obra_id=${S.obra}`)).body.find((x) => x.semana_inicio === '2026-09-21');
+  assert.deepEqual([h.numero_semana, h.origen, h.trabajadores, h.total_deposito], [29, 'EXCEL', 2, 1603]);
+  const t = (await request(app).get(`/api/planillas/historial/trabajador?dni=${a.dni}`)).body.boletas.find((x) => x.semana_inicio === '2026-09-21');
+  assert.deepEqual([t.deposito, t.dias, t.horas_extras], [936, 6, 2]);
+  const p = await pdf(request(app).get(`/api/planillas/boletas.pdf?obra_id=${S.obra}&fecha=2026-09-21`)); // semana sin asistencia en CPAD
+  assert.equal(p.status, 200);
+  assert.equal(paginas(p.body), 2);
+  const v = (await request(app).get(`/api/planillas/semana?obra_id=${S.obra}&fecha=2026-09-23`)).body; // se muestra lo registrado
+  assert.deepEqual([v.registro.origen, v.cierre, v.totales.deposito, v.totales.descuento], ['EXCEL', null, 1603, 50]);
+  const ba = v.boletas.find((x) => x.trabajador_id === S.a);
+  assert.deepEqual([ba.pago_semana, ba.neto, ba.deposito], [986, 986, 936]); // el DSCTO no figura en la boleta
+  assert.equal((await subirPlanilla(buf, `?obra_id=${S.obra}&confirmar=1&especialidad_id=1`)).status, 409); // ya registrada
 });

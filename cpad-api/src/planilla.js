@@ -9,18 +9,6 @@ const c = (soles) => Math.round(Number(soles) * 100);          // soles -> cént
 const s = (cent) => Math.round(cent) / 100;                    // céntimos -> soles
 const pct = (baseCent, p) => Math.round((baseCent * Number(p)) / 100);
 
-/**
- * Calcula la boleta semanal de un trabajador.
- * t: { jornal, pct_buc, valor_hora_extra, dias, horas_extras, depositado? }
- * p: parámetros vigentes (movilidad, gratificación, porcentajes)
- * Si se indica el monto depositado, el dominical es el ajuste que hace que el neto coincida con él;
- * si el resto de conceptos ya lo supera, el dominical queda en cero y la diferencia se registra como adelanto.
- */
-/**
- * Depósito de la semana según lo que la empresa paga en la práctica:
- * sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol hacia arriba, menos el adelanto entregado.
- * Reproduce los 11 depósitos de la semana 30 de 2026.
- */
 /** Número correlativo de la semana en la obra: la semana base es la 1. Sin base, o antes de ella, no hay número. */
 function numeroSemana(inicio, base) {
   if (!base) return null;
@@ -28,13 +16,26 @@ function numeroSemana(inicio, base) {
   return n > 0 ? n : null;
 }
 
-function calcularDeposito({ sueldo_semanal, dias, horas_extras = 0, tarifa_hora_extra = 0, adelanto = 0 }) {
+/**
+ * Depósito de la semana según lo que la empresa paga en la práctica:
+ * sueldo semanal × días ÷ 6 + horas extras × tarifa, redondeado al sol hacia arriba, menos el descuento (DSCTO).
+ * Las horas extras que se pagan con la semana N son las trabajadas en la semana N + 1 («semana adentro»).
+ * Reproduce los 11 depósitos de la semana 30 de 2026.
+ */
+function calcularDeposito({ sueldo_semanal, dias, horas_extras = 0, tarifa_hora_extra = 0, descuento = 0 }) {
   const bruto = Math.round((c(sueldo_semanal) * Number(dias)) / 6 + Number(horas_extras) * c(tarifa_hora_extra || 0));
   const pago = Math.ceil(bruto / 100) * 100;              // al sol, siempre hacia arriba
-  const ade = c(adelanto || 0);
-  return { pago_semana: s(pago), adelanto_entregado: s(ade), deposito: s(pago - ade) };
+  const des = c(descuento || 0);
+  return { pago_semana: s(pago), descuento: s(des), deposito: s(pago - des) };
 }
 
+/**
+ * Calcula la boleta semanal de un trabajador.
+ * t: { jornal, pct_buc, valor_hora_extra, dias, horas_extras, depositado? }
+ * p: parámetros vigentes (movilidad, gratificación, porcentajes)
+ * Si se indica el monto depositado, el dominical es el ajuste que hace que el neto coincida con él;
+ * si el resto de conceptos ya lo supera, el dominical queda en cero y la diferencia se registra como adelanto.
+ */
 function calcularBoleta(t, p) {
   const J = c(t.jornal); const d = Number(t.dias) || 0;
   const r = {};
@@ -103,17 +104,20 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
   }
 
   /**
-   * Calcula la planilla de una semana cerrada. Las horas extras y los adelantos salen de lo registrado por el
+   * Calcula la planilla de una semana cerrada. Las horas extras pagadas y el descuento (DSCTO) salen de lo registrado por el
    * administrador (ajuste_planilla); el cuerpo de la petición puede reemplazarlos. El depósito se calcula con el
    * sueldo semanal de la categoría de pago, salvo que se indique explícitamente.
    */
   async function calcularSemana(sem, o = {}) {
     const { p, jornales, pagos } = await vigentes(sem.semana.inicio);
-    const { rows: aj } = await pool.query('SELECT trabajador_id, horas_extras, adelanto, nota FROM ajuste_planilla WHERE obra_id = $1 AND semana_inicio = $2', [sem.obra.id, sem.semana.inicio]);
+    const { rows: aj } = await pool.query('SELECT trabajador_id, horas_extras, descuento, nota FROM ajuste_planilla WHERE obra_id = $1 AND semana_inicio = $2', [sem.obra.id, sem.semana.inicio]);
     const ajuste = new Map(aj.map((x) => [x.trabajador_id, x]));
-    const he = o.horas_extras || {}; const dep = o.depositado || {}; const ade = o.adelantos || {};
+    const he = o.horas_extras || {}; const dep = o.depositado || {}; const des = o.descuentos || {};
     const { rows: cats } = await pool.query('SELECT id, categoria_id, categoria_pago_id FROM trabajador WHERE id = ANY($1)', [sem.filas.map((f) => f.trabajador_id)]);
     const catDe = new Map(cats.map((x) => [x.id, x.categoria_pago_id || x.categoria_id]));
+    // Las horas extras que se pagan con esta semana son las de la semana siguiente: su sobretiempo del tareo es la referencia
+    const sig = await resumenSemana(sem.obra, new Date(Date.parse(sem.semana.inicio + 'T12:00:00Z') + 7 * 864e5).toISOString().slice(0, 10));
+    const sobreSig = new Map(sig.filas.map((x) => [x.trabajador_id, x.sobretiempo_h]));
     const errores = []; const boletas = [];
     for (const f of sem.filas) {
       if (!f.dias_asistidos) continue; // sin días laborados no hay boleta
@@ -123,15 +127,15 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
       if (!j) e.push('su categoría de pago no tiene jornal de tabla vigente');
       const h = Number(he[f.trabajador_id] ?? a?.horas_extras ?? 0);
       if (!(h >= 0) || h > 60) e.push('horas extras inválidas');
-      const ad = Number(ade[f.trabajador_id] ?? a?.adelanto ?? 0);
-      if (!(ad >= 0)) e.push('adelanto inválido');
+      const ds = Number(des[f.trabajador_id] ?? a?.descuento ?? 0);
+      if (!(ds >= 0)) e.push('descuento inválido');
       let v = dep[f.trabajador_id]; let d = null;
       if (v != null && v !== '') { if (!(Number(v) > 0)) e.push('monto depositado inválido'); }
       else if (!g) e.push('su categoría de pago no tiene sueldo semanal vigente');
       else if (h > 0 && g.tarifa_hora_extra == null) e.push('falta definir la tarifa de la hora extra de su categoría');
       else {
-        d = calcularDeposito({ sueldo_semanal: g.sueldo_semanal, dias: f.dias_asistidos, horas_extras: h, tarifa_hora_extra: g.tarifa_hora_extra, adelanto: ad });
-        if (d.deposito <= 0) e.push('el adelanto iguala o supera el pago de la semana');
+        d = calcularDeposito({ sueldo_semanal: g.sueldo_semanal, dias: f.dias_asistidos, horas_extras: h, tarifa_hora_extra: g.tarifa_hora_extra, descuento: ds });
+        if (d.deposito <= 0) e.push('el descuento iguala o supera el pago de la semana');
         v = d.deposito;
       }
       if (e.length) { errores.push({ trabajador_id: f.trabajador_id, trabajador: `${f.apellidos}, ${f.nombres}`, categoria_pago: j?.categoria || g?.categoria || null, errores: e }); continue; }
@@ -140,30 +144,46 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
         trabajador_id: f.trabajador_id, dni: f.dni, apellidos: f.apellidos, nombres: f.nombres,
         categoria_tareo: f.categoria, categoria_pago: j.categoria, jornal: Number(j.jornal),
         sueldo_semanal: g ? Number(g.sueldo_semanal) : null, tarifa_hora_extra: g?.tarifa_hora_extra != null ? Number(g.tarifa_hora_extra) : null,
-        horas_normales, sobretiempo_tareo: f.sobretiempo_h, nota: a?.nota || null,
-        pago_semana: d ? d.pago_semana : null, adelanto_entregado: d ? d.adelanto_entregado : ad, deposito: Number(v),
-        ...calcularBoleta({ jornal: j.jornal, pct_buc: j.pct_buc, valor_hora_extra: j.valor_hora_extra, dias: f.dias_asistidos, horas_extras: h, depositado: v }, p),
+        horas_normales, sobretiempo_tareo: sobreSig.get(f.trabajador_id) || 0, nota: a?.nota || null,
+        pago_semana: d ? d.pago_semana : null, descuento: d ? d.descuento : 0, deposito: Number(v),
+        ...calcularBoleta({ jornal: j.jornal, pct_buc: j.pct_buc, valor_hora_extra: j.valor_hora_extra, dias: f.dias_asistidos, horas_extras: h, depositado: d ? d.pago_semana : v }, p),
       });
     }
     const sum = (k) => Math.round(boletas.reduce((acc, x) => acc + x[k] * 100, 0)) / 100;
-    return { obra: sem.obra, semana: sem.semana, cierre: sem.cierre, parametros: { pct_snp: Number(p.pct_snp) }, boletas, errores,
+    const semana_horas_extras = { inicio: sig.semana.inicio, fin: sig.semana.fin, cerrada: !!sig.cierre };
+    return { obra: sem.obra, semana: sem.semana, cierre: sem.cierre, semana_horas_extras, parametros: { pct_snp: Number(p.pct_snp) }, boletas, errores,
       totales: { trabajadores: boletas.length, total_remuneracion: sum('total_remuneracion'), total_descuento: sum('total_descuento'),
-        neto: sum('neto'), deposito: sum('deposito'), adelanto_entregado: sum('adelanto_entregado'), total_aportes: sum('total_aportes') } };
+        neto: sum('neto'), deposito: sum('deposito'), descuento: sum('descuento'), total_aportes: sum('total_aportes') } };
   }
 
   // Vista de la planilla para la pantalla: siempre responde, e informa qué trabajadores no se pudieron calcular
   async function vistaSemana(sem) {
     const reg = await registro(sem.obra.id, sem.semana.inicio);
     if (!reg) return { ...(await calcularSemana(sem)), registro: null };
-    const out = await calcularSemana(sem);
-    const sum = (k) => Math.round(reg.boletas.reduce((acc, x) => acc + x[k] * 100, 0)) / 100;
-    return { ...out, boletas: reg.boletas, errores: [], registro: { registrado_en: reg.registrado_en, numero_semana: reg.numero_semana },
+    return vistaRegistro(reg, await calcularSemana(sem));
+  }
+
+  /** Planilla registrada tal como se guardó; sirve también para semanas importadas sin asistencia en CPAD. */
+  function vistaRegistro(reg, out = null, pctSnp = null) {
+    const sum = (k) => Math.round(reg.boletas.reduce((acc, x) => acc + (Number(x[k]) || 0) * 100, 0)) / 100;
+    const base = out || { obra: { ...reg.obra }, semana: { inicio: reg.semana_inicio, fin: new Date(Date.parse(reg.semana_inicio + 'T12:00:00Z') + 6 * 864e5).toISOString().slice(0, 10) },
+      cierre: null, semana_horas_extras: null, parametros: { pct_snp: pctSnp } };
+    return { ...base, boletas: reg.boletas, errores: [],
+      registro: { registrado_en: reg.registrado_en, numero_semana: reg.numero_semana, origen: reg.origen },
       totales: { trabajadores: reg.boletas.length, total_remuneracion: sum('total_remuneracion'), total_descuento: sum('total_descuento'),
-        neto: sum('neto'), deposito: sum('deposito'), adelanto_entregado: sum('adelanto_entregado'), total_aportes: sum('total_aportes') } };
+        neto: sum('neto'), deposito: sum('deposito'), descuento: sum('descuento'), total_aportes: sum('total_aportes') } };
   }
 
   r.get('/semana', ah(async (req, res) => {
-    const sem = await semanaCerrada(Number(req.query.obra_id), req.query.fecha);
+    const obra_id = Number(req.query.obra_id);
+    let sem;
+    try { sem = await semanaCerrada(obra_id, req.query.fecha); } catch (e) {
+      // Una semana importada desde Excel no tiene asistencia en CPAD: se muestra lo registrado
+      const reg = e.status === 409 && Number.isInteger(obra_id) ? await registro(obra_id, lunesDe(req.query.fecha)) : null;
+      if (!reg) throw e;
+      const { p } = await vigentes(reg.semana_inicio);
+      return res.json(vistaRegistro(reg, null, Number(p.pct_snp)));
+    }
     res.json(await vistaSemana(sem));
   }));
 
@@ -177,7 +197,7 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
     res.json(out);
   }));
 
-  // HU09: registra las horas extras y el adelanto de un trabajador en la semana
+  // HU09: registra las horas extras pagadas (las de la semana siguiente) y el descuento (DSCTO) de un trabajador
   r.put('/ajustes', ah(async (req, res) => {
     const b = req.body || {};
     const sem = await semanaCerrada(Number(b.obra_id), b.fecha);
@@ -186,15 +206,16 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
     if (!sem.filas.some((f) => f.trabajador_id === tid)) throw new HttpError(404, 'El trabajador no pertenece a la planilla de esa semana');
     const errores = [];
     const h = b.horas_extras == null || b.horas_extras === '' ? 0 : Number(b.horas_extras);
-    const ad = b.adelanto == null || b.adelanto === '' ? 0 : Number(b.adelanto);
+    const dv = b.descuento ?? b.adelanto; // «adelanto» se acepta por compatibilidad con la versión 0.8.0
+    const ad = dv == null || dv === '' ? 0 : Number(dv);
     if (!(h >= 0 && h <= 60) || Math.round(h * 100) !== h * 100) errores.push('horas_extras debe estar entre 0 y 60');
-    if (!(ad >= 0 && ad < 100000) || Math.abs(Math.round(ad * 100) - ad * 100) > 1e-6) errores.push('adelanto debe ser un monto de 0 o más, con dos decimales como máximo');
+    if (!(ad >= 0 && ad < 100000) || Math.abs(Math.round(ad * 100) - ad * 100) > 1e-6) errores.push('descuento debe ser un monto de 0 o más, con dos decimales como máximo');
     const nota = b.nota == null ? null : String(b.nota).trim().slice(0, 120) || null;
     if (errores.length) throw new HttpError(400, 'Datos inválidos', errores);
-    await pool.query(`INSERT INTO ajuste_planilla (obra_id, semana_inicio, trabajador_id, horas_extras, adelanto, nota)
+    await pool.query(`INSERT INTO ajuste_planilla (obra_id, semana_inicio, trabajador_id, horas_extras, descuento, nota)
       VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (obra_id, semana_inicio, trabajador_id) DO UPDATE SET horas_extras = EXCLUDED.horas_extras,
-        adelanto = EXCLUDED.adelanto, nota = EXCLUDED.nota, actualizado_en = now()`, [sem.obra.id, sem.semana.inicio, tid, h, ad, nota]);
+        descuento = EXCLUDED.descuento, nota = EXCLUDED.nota, actualizado_en = now()`, [sem.obra.id, sem.semana.inicio, tid, h, ad, nota]);
     res.json(await vistaSemana(sem));
   }));
   const dia = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : d);
@@ -323,6 +344,7 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
       WHERE b.trabajador_id = $1 ORDER BY b.semana_inicio DESC`, [t.id]);
     res.json({ trabajador: t, boletas: rows.map((x) => ({ ...x, semana_inicio: dia(x.semana_inicio), semana_fin: sabadoDe(dia(x.semana_inicio)) })) });
   }));
+  r.vigentes = vigentes; r.empleador = empleador;
   return r;
 };
 module.exports.calcularBoleta = calcularBoleta;

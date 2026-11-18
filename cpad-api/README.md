@@ -55,6 +55,7 @@ Las pruebas levantan un PostgreSQL embebido temporal, aplican el esquema y los d
 | GET | /api/planillas/historial?obra_id= | Semanas registradas de la obra, con trabajadores y total depositado |
 | GET | /api/planillas/historial/trabajador?dni= | Boletas registradas de un trabajador |
 | POST | /api/importaciones/padron[?confirmar=1&obra_id=&especialidad_id=] | Lee la planilla en Excel (.xlsx, cuerpo binario): vista previa, o registra y actualiza el padrón (HU11) |
+| POST | /api/importaciones/planilla?obra_id=[&confirmar=1&especialidad_id=] | Lee la planilla de una semana pagada (un archivo por semana): vista previa, o la registra en el historial y actualiza el padrón (HU11) |
 | POST | /api/planillas/calculo | Cálculo con horas extras, adelantos o depósitos indicados en la petición |
 
 Las bajas son lógicas (`activo = false`) para conservar el histórico de planillas.
