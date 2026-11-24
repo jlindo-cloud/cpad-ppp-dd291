@@ -205,3 +205,24 @@ DO $$ BEGIN
     ALTER TABLE ajuste_planilla RENAME COLUMN adelanto TO descuento;
   END IF;
 END $$;
+
+-- HU14 · Usuarios y roles. La clave se guarda con scrypt y sal; la sesión, como hash del token.
+CREATE TABLE IF NOT EXISTS usuario (
+  id              SERIAL PRIMARY KEY,
+  usuario         VARCHAR(40) NOT NULL UNIQUE CHECK (usuario ~ '^[a-z0-9._-]{3,40}$'),
+  nombre          VARCHAR(100) NOT NULL,
+  rol             VARCHAR(15) NOT NULL CHECK (rol IN ('ADMINISTRADOR', 'GERENTE', 'CONSULTA')),
+  clave_hash      TEXT NOT NULL,
+  activo          BOOLEAN NOT NULL DEFAULT TRUE,
+  ultimo_ingreso  TIMESTAMPTZ,
+  creado_en       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS sesion (
+  token_hash      CHAR(64) PRIMARY KEY,
+  usuario_id      INTEGER NOT NULL REFERENCES usuario(id) ON DELETE CASCADE,
+  creado_en       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expira_en       TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_sesion_usuario ON sesion(usuario_id);
+-- Trazabilidad: quién registró cada planilla semanal
+ALTER TABLE planilla_registro ADD COLUMN IF NOT EXISTS registrado_por VARCHAR(40);

@@ -174,8 +174,8 @@ module.exports = function importacionRouter(pool, { HttpError, ah, planillas }) 
           e.nombre AS especialidad FROM trabajador t JOIN especialidad e ON e.id = t.especialidad_id WHERE t.id = ANY($1)`, [[...ids.values()]]);
       const tPor = new Map(tr.map((x) => [x.id, x]));
       const d10 = (x) => (x instanceof Date ? x.toISOString().slice(0, 10) : x);
-      await cx.query('INSERT INTO planilla_registro (obra_id, semana_inicio, numero_semana, origen, empresa, obra) VALUES ($1,$2,$3,$4,$5,$6)',
-        [pl.obra.id, pl.inicio, pl.numero, 'EXCEL', empresa, pl.obra]);
+      await cx.query('INSERT INTO planilla_registro (obra_id, semana_inicio, numero_semana, origen, empresa, obra, registrado_por) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [pl.obra.id, pl.inicio, pl.numero, 'EXCEL', empresa, pl.obra, req.usuario?.usuario || null]);
       let n = 0;
       for (const f of v.filas.filter((x) => x.pago.total_pago > 0)) {
         const id = ids.get(f.dni); const t = tPor.get(id); const j = jornales.get(f.categoria_id); const g = pagos.get(f.categoria_id);

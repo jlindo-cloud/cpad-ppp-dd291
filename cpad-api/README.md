@@ -3,6 +3,7 @@
 API REST del módulo de asistencia y planilla del ERP CPAD (COEZ PERÚ E.I.R.L.).
 **Incremento del Sprint 1:** núcleo y maestros (obras, categorías, especialidades y trabajadores), con carga masiva del padrón.
 **Incremento del Sprint 2 (semana 6):** registro diario de asistencia (tareo) con cálculo de horas, tardanza y sobretiempo.
+**Sprint 5 (semana 12):** usuarios y roles (HU14) y costo de mano de obra por obra (HU13).
 
 ## Requisitos
 - Node.js 20 o superior
@@ -16,6 +17,8 @@ DATABASE_URL=postgres://usuario:clave@host:5432/cpad npm start
 ```
 Para Supabase, añadir `DATABASE_SSL=true`.
 
+En el primer arranque se crea el usuario `admin`. Su clave se toma de `CPAD_ADMIN_CLAVE` o, si no se indica, se genera y se muestra una sola vez en la consola.
+
 ## Base de datos de desarrollo
 ```bash
 npm run dev:db   # PostgreSQL embebido en el puerto 54331
@@ -25,12 +28,19 @@ npm run dev:db   # PostgreSQL embebido en el puerto 54331
 ```bash
 npm test
 ```
-Las pruebas levantan un PostgreSQL embebido temporal, aplican el esquema y los datos iniciales, y ejecutan 23 casos de prueba contra la API.
+Las pruebas levantan un PostgreSQL embebido temporal, aplican el esquema y los datos iniciales, y ejecutan 55 casos de prueba contra la API.
 
 ## Endpoints
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | /api/salud | Estado del servicio y de la base de datos |
+| GET | /api/salud | Estado del servicio y de la base de datos (no exige sesión) |
+| POST | /api/auth/ingresar | Inicia sesión con `usuario` y `clave`; deja una cookie HttpOnly de 12 horas (HU14) |
+| POST | /api/auth/salir | Cierra la sesión en el servidor |
+| GET | /api/auth/yo | Usuario de la sesión y su rol |
+| PUT | /api/auth/clave | Cambia la propia clave (`actual`, `nueva`) y cierra las demás sesiones |
+| GET, POST | /api/usuarios | Listar / crear usuarios (solo administrador) |
+| PUT | /api/usuarios/:id | Cambiar nombre, rol, clave o estado (solo administrador; siempre queda un administrador activo) |
+| GET | /api/planillas/costos[?desde=&hasta=] | Costo de mano de obra por obra, por semana y por categoría, según las planillas registradas (HU13) |
 | GET, POST | /api/categorias | Listar / crear categorías |
 | GET, PUT, DELETE | /api/categorias/:id | Consultar / editar / dar de baja |
 | GET, POST | /api/especialidades | Listar / crear especialidades |
@@ -57,6 +67,8 @@ Las pruebas levantan un PostgreSQL embebido temporal, aplican el esquema y los d
 | POST | /api/importaciones/padron[?confirmar=1&obra_id=&especialidad_id=] | Lee la planilla en Excel (.xlsx, cuerpo binario): vista previa, o registra y actualiza el padrón (HU11) |
 | POST | /api/importaciones/planilla?obra_id=[&confirmar=1&especialidad_id=] | Lee la planilla de una semana pagada (un archivo por semana): vista previa, o la registra en el historial y actualiza el padrón (HU11) |
 | POST | /api/planillas/calculo | Cálculo con horas extras, adelantos o depósitos indicados en la petición |
+
+Toda la API, salvo `/api/salud` y el ingreso, exige sesión. Roles: **ADMINISTRADOR** (todo, incluidos los usuarios), **GERENTE** (consulta todo y registra o anula la planilla semanal) y **CONSULTA** (solo lectura). La clave se guarda con scrypt y sal; la sesión, como hash SHA-256 del token. Tras cinco intentos fallidos el usuario se bloquea diez minutos.
 
 Las bajas son lógicas (`activo = false`) para conservar el histórico de planillas.
 

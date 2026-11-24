@@ -171,10 +171,15 @@ function crud(pool, table, validar, { order = 'id', filters = () => ({ where: []
 function createApp(pool, { staticDir } = {}) {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
+  // HU14 · Toda la API exige sesión; cada rol tiene sus permisos
+  const auth = require('./auth')(pool, { HttpError, ah });
+  app.use(auth.exigir);
+  app.use('/api/auth', auth.rutas);
+  app.use('/api/usuarios', auth.usuarios);
 
   app.get('/api/salud', ah(async (_req, res) => {
     await pool.query('SELECT 1');
-    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.8.2' });
+    res.json({ estado: 'ok', servicio: 'cpad-api', version: '0.9.0' });
   }));
 
   app.use('/api/categorias', crud(pool, 'categoria', validarCatalogo, { order: 'nombre' }));

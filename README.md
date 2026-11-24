@@ -22,6 +22,7 @@ Scrum con un Sprint 0 de análisis (semanas 1 a 3) y sprints de dos semanas. Cad
 | [v0.8.0](../../tree/v0.8.0) | Sprint 4 · semana 11 | Registro de la planilla e historial de boletas (HU12); importación del padrón desde el Excel de la empresa (HU11, primera parte); 46 pruebas |
 | [v0.8.1](../../tree/v0.8.1) | Sprint 4 · semana 11 | Importación de semanas pagadas al historial (HU11); horas extras de la semana siguiente («semana adentro»); DSCTO fuera de la boleta; 48 pruebas |
 | [v0.8.2](../../tree/v0.8.2) | Sprint 4 · semana 11 | Plantilla oficial en Excel para importar la planilla semanal, descargable desde la pantalla de importación |
+| [v0.9.0](../../tree/v0.9.0) | Sprint 5 · semana 12 | Usuarios y roles con inicio de sesión (HU14) y costo de mano de obra por obra (HU13) |
 
 ## Estructura
 

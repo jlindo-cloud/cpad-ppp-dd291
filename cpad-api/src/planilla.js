@@ -299,8 +299,8 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
     const cx = await pool.connect();
     try {
       await cx.query('BEGIN');
-      await cx.query('INSERT INTO planilla_registro (obra_id, semana_inicio, numero_semana, origen, empresa, obra) VALUES ($1,$2,$3,$4,$5,$6)',
-        [o.id, sem.semana.inicio, numero, 'CPAD', empresa, obra]);
+      await cx.query('INSERT INTO planilla_registro (obra_id, semana_inicio, numero_semana, origen, empresa, obra, registrado_por) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [o.id, sem.semana.inicio, numero, 'CPAD', empresa, obra, req.usuario?.usuario || null]);
       for (const x of boletas) {
         await cx.query('INSERT INTO boleta_emitida (obra_id, semana_inicio, trabajador_id, deposito, datos) VALUES ($1,$2,$3,$4,$5)',
           [o.id, sem.semana.inicio, x.trabajador_id, x.deposito, x]);
@@ -322,7 +322,7 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
   r.get('/historial', ah(async (req, res) => {
     const obra_id = Number(req.query.obra_id);
     if (!Number.isInteger(obra_id) || obra_id <= 0) throw new HttpError(400, 'obra_id es obligatorio');
-    const { rows } = await pool.query(`SELECT r.semana_inicio, r.numero_semana, r.origen, r.registrado_en,
+    const { rows } = await pool.query(`SELECT r.semana_inicio, r.numero_semana, r.origen, r.registrado_en, r.registrado_por,
         COUNT(b.*)::int AS trabajadores, COALESCE(SUM(b.deposito), 0)::float AS total_deposito
       FROM planilla_registro r LEFT JOIN boleta_emitida b ON b.obra_id = r.obra_id AND b.semana_inicio = r.semana_inicio
       WHERE r.obra_id = $1 GROUP BY r.obra_id, r.semana_inicio ORDER BY r.semana_inicio DESC`, [obra_id]);
@@ -343,6 +343,40 @@ module.exports = function planillaRouter(pool, { HttpError, ah, resumenSemana, o
       FROM boleta_emitida b JOIN planilla_registro r ON r.obra_id = b.obra_id AND r.semana_inicio = b.semana_inicio
       WHERE b.trabajador_id = $1 ORDER BY b.semana_inicio DESC`, [t.id]);
     res.json({ trabajador: t, boletas: rows.map((x) => ({ ...x, semana_inicio: dia(x.semana_inicio), semana_fin: sabadoDe(dia(x.semana_inicio)) })) });
+  }));
+  // HU13 · Costo de mano de obra por obra: lo pagado en las planillas registradas, por semana y por categoría
+  r.get('/costos', ah(async (req, res) => {
+    const desde = req.query.desde || '1900-01-01'; const hasta = req.query.hasta || '2999-12-31';
+    const valida = (f) => /^\d{4}-\d{2}-\d{2}$/.test(f) && !Number.isNaN(Date.parse(f + 'T12:00:00Z')) && new Date(f + 'T12:00:00Z').toISOString().slice(0, 10) === f;
+    for (const f of [desde, hasta]) if (!valida(f)) throw new HttpError(400, 'desde y hasta deben tener el formato AAAA-MM-DD');
+    const { rows } = await pool.query(`SELECT r.obra_id, r.obra->>'codigo' AS codigo, r.obra->>'nombre' AS nombre, r.obra->>'centro_costo' AS centro_costo,
+        r.semana_inicio, r.numero_semana, COALESCE(b.datos->>'categoria_pago', b.datos->>'categoria') AS categoria,
+        COUNT(*)::int AS boletas, SUM(b.deposito)::float AS deposito,
+        SUM(COALESCE((b.datos->>'pago_semana')::numeric, b.deposito))::float AS pago,
+        SUM(COALESCE((b.datos->>'horas_extras_pagadas')::numeric, 0))::float AS horas_extras,
+        SUM(COALESCE((b.datos->>'dias')::numeric, 0))::int AS dias
+      FROM planilla_registro r JOIN boleta_emitida b ON b.obra_id = r.obra_id AND b.semana_inicio = r.semana_inicio
+      WHERE r.semana_inicio BETWEEN $1 AND $2
+      GROUP BY r.obra_id, r.obra, r.semana_inicio, r.numero_semana, 7 ORDER BY r.obra->>'codigo', r.semana_inicio`, [desde, hasta]);
+    const obras = new Map();
+    for (const x of rows) {
+      const k = x.obra_id;
+      if (!obras.has(k)) obras.set(k, { obra_id: k, codigo: x.codigo, nombre: x.nombre, centro_costo: x.centro_costo, total_pago: 0, total_deposito: 0, jornales: 0, horas_extras: 0, semanas: new Map(), categorias: new Map() });
+      const o = obras.get(k); const ini = dia(x.semana_inicio);
+      o.total_pago += x.pago; o.total_deposito += x.deposito; o.jornales += x.dias; o.horas_extras += x.horas_extras;
+      const s = o.semanas.get(ini) || { semana_inicio: ini, semana_fin: sabadoDe(ini), numero_semana: x.numero_semana, trabajadores: 0, pago: 0, deposito: 0 };
+      s.trabajadores += x.boletas; s.pago += x.pago; s.deposito += x.deposito; o.semanas.set(ini, s);
+      const cat = x.categoria || 'SIN CATEGORÍA';
+      const c = o.categorias.get(cat) || { categoria: cat, pago: 0, jornales: 0 };
+      c.pago += x.pago; c.jornales += x.dias; o.categorias.set(cat, c);
+    }
+    const r2 = (n) => Math.round(n * 100) / 100;
+    res.json([...obras.values()].map((o) => ({
+      ...o, total_pago: r2(o.total_pago), total_deposito: r2(o.total_deposito), horas_extras: r2(o.horas_extras),
+      costo_jornal: o.jornales ? r2(o.total_pago / o.jornales) : null,
+      semanas: [...o.semanas.values()].map((s) => ({ ...s, pago: r2(s.pago), deposito: r2(s.deposito) })),
+      categorias: [...o.categorias.values()].map((c) => ({ ...c, pago: r2(c.pago) })).sort((a, b) => b.pago - a.pago),
+    })));
   }));
   r.vigentes = vigentes; r.empleador = empleador;
   return r;

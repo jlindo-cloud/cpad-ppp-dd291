@@ -50,7 +50,7 @@ export default function Historial({ obras, obraId, setObraId, setFecha, ir }) {
                   <td className="num">{rango(s.semana_inicio, s.semana_fin)}</td>
                   <td className="num text-right">{s.trabajadores}</td>
                   <td className="num text-right font-semibold">S/ {sol(s.total_deposito)}</td>
-                  <td className="num text-tinta-2">{fechaHora(s.registrado_en)}{s.origen === 'EXCEL' ? ' · desde Excel' : ''}</td>
+                  <td className="num text-tinta-2">{fechaHora(s.registrado_en)}{s.origen === 'EXCEL' ? ' · desde Excel' : ''}{s.registrado_por ? ` · ${s.registrado_por}` : ''}</td>
                   <td className="text-right">
                     <div className="flex justify-end gap-2">
                       <button type="button" className="btn-quieto h-8" onClick={() => { setFecha(s.semana_inicio); ir('planilla', s.semana_inicio); }}>Ver planilla</button>

@@ -16,6 +16,10 @@ const P = {
   reloj: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
   historial: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2',
   importar: 'M12 3v12M7 10l5 5 5-5M5 21h14',
+  usuarios: 'M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3zM9.5 12l1.8 1.8L15 10',
+  costo: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+  salir: 'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3',
+  llave: 'M15.5 7.5a3.5 3.5 0 1 1-4.9 3.2L4 17.3V20h2.7l.8-.8v-1.7h1.7l1.2-1.2v-1.7h1.7l.6-.6a3.5 3.5 0 0 1 3-6.5z',
   planilla: 'M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 18h8',
 };
 export function Icono({ n, className = 'size-4' }) {
